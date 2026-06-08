@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>نقاشی و حدس | جفت‌شدن خودکار</title>
+  <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      background: #1e1e2f;
+      color: #fff;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+    .login {
+      position: fixed; top:0; left:0; right:0; bottom:0;
+      background: #1e1e2f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      gap: 15px;
+    }
+    .login h2 { color: #ffb86c; }
+    .login input {
+      padding: 12px 20px; border-radius: 30px; border: none;
+      background: #3a3a5a; color: #fff; width: 220px; text-align: center; font-size: 16px;
+    }
+    .login button {
+      padding: 12px 30px; border-radius: 30px; border: none;
+      background: #7c5cfc; color: #fff; font-weight: bold; cursor: pointer; font-size: 16px;
+    }
+    #app {
+      display: none; flex-direction: column; height: 100%; padding: 8px;
+    }
+    .top-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #2d2d44; padding: 10px; border-radius: 12px; margin-bottom: 8px; font-size: 14px;
+    }
+    .status { color: #ffb86c; }
+    .game-info {
+      font-size: 14px; text-align: center; margin: 4px 0; display: flex; justify-content: space-between;
+    }
+    canvas {
+      background: #fff; border-radius: 12px; touch-action: none;
+      width: 100%; flex: 1; display: block; margin-bottom: 8px;
+    }
+    .tools {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
+    }
+    .tools input[type="color"] { width: 40px; height: 40px; border: none; background: none; }
+    .tools input[type="range"] { flex: 1; }
+    button {
+      background: #7c5cfc; color: #fff; border: none; border-radius: 8px; padding: 8px 12px; font-weight: bold; cursor: pointer;
+    }
+    .chat-area {
+      background: #2d2d44; border-radius: 12px; padding: 8px; display: flex; flex-direction: column;
+      max-height: 25vh; min-height: 120px;
+    }
+    .messages {
+      flex: 1; overflow-y: auto; margin-bottom: 8px; font-size: 14px;
+    }
+    .message {
+      margin-bottom: 4px; padding: 4px 8px; background: #3a3a5a; border-radius: 8px; word-break: break-word;
+    }
+    .message.self { background: #5a4a8a; text-align: left; }
+    .chat-input {
+      display: flex; gap: 6px;
+    }
+    .chat-input input {
+      flex: 1; padding: 10px; border-radius: 8px; border: none; background: #3a3a5a; color: #fff;
+    }
+    .hidden { display: none !important; }
+    .user-chip {
+      background: #2a3942; padding: 4px 12px; border-radius: 20px; font-size: 12px; margin: 2px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loginBox" class="login">
+  <h2>🎨 نقاشی و حدس</h2>
+  <input type="text" id="nameInput" placeholder="نام شما" autocomplete="off">
+  <button id="startBtn">ورود و جفت شدن</button>
+</div>
+
+<div id="app">
+  <div class="top-bar">
+    <span class="status" id="statusLabel">در حال اتصال...</span>
+    <div id="usersContainer" style="display:flex; gap:6px;"></div>
+  </div>
+  <div class="game-info">
+    <span id="roleDisplay"></span>
+    <span id="wordDisplay" style="font-weight:bold; color:#ffb86c;"></span>
+    <span id="scoreDisplay">🏆 0 - 0</span>
+  </div>
+  <canvas id="drawCanvas"></canvas>
+  <div class="tools" id="toolbar">
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="range" id="brushSize" min="2" max="20" value="4">
+    <button id="clearBtn">پاک کردن</button>
+    <button id="skipBtn">رد کردن کلمه</button>
+  </div>
+  <div class="chat-area">
+    <div class="messages" id="messageContainer"></div>
+    <div class="chat-input">
+      <input type="text" id="chatInput" placeholder="حدس بزن یا چت کن..." autocomplete="off">
+      <button id="sendBtn">ارسال</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    // ---------- لیست کلمات ----------
+    const WORDS = ['سیب', 'موز', 'ماشین', 'گربه', 'خانه', 'درخت', 'آفتاب', 'ماهی', 'گل', 'کتاب', 'قلب', 'ستاره', 'پیتزا', 'هواپیما', 'ساعت', 'فیل', 'موبایل', 'عینک', 'مداد', 'کفش'];
+
+    // ---------- عناصر ----------
+    const loginBox = document.getElementById('loginBox');
+    const nameInput = document.getElementById('nameInput');
+    const startBtn = document.getElementById('startBtn');
+    const app = document.getElementById('app');
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const colorPicker = document.getElementById('colorPicker');
+    const brushSize = document.getElementById('brushSize');
+    const clearBtn = document.getElementById('clearBtn');
+    const skipBtn = document.getElementById('skipBtn');
+    const toolbar = document.getElementById('toolbar');
+    const messageContainer = document.getElementById('messageContainer');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const statusLabel = document.getElementById('statusLabel');
+    const roleDisplay = document.getElementById('roleDisplay');
+    const wordDisplay = document.getElementById('wordDisplay');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const usersContainer = document.getElementById('usersContainer');
+
+    // ---------- حالت ----------
+    let myName = '';
+    let myPeerId = null;
+    let peer = null;
+    let mqttClient = null;
+    let pairedConn = null;
+    let pairedPeerId = null;
+    let pairedName = '';
+    let isPaired = false;
+    let myTurn = false;        // آیا نوبت من برای نقاشی است؟
+    let currentWord = '';
+    let score = { me: 0, other: 0 };
+    let drawing = false;
+    let lastX, lastY;
+
+    // ---------- تنظیم بوم ----------
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * 0.96;
+      canvas.height = Math.min(window.innerHeight * 0.4, 350);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // ---------- ابزارها ----------
+    function setDrawToolsEnabled(enabled) {
+      toolbar.style.display = enabled ? 'flex' : 'none';
+    }
+
+    function startDrawing(e) {
+      if (!myTurn) return;
+      e.preventDefault();
+      drawing = true;
+      const pos = getCanvasCoords(e);
+      lastX = pos.x; lastY = pos.y;
+      ctx.beginPath(); ctx.moveTo(lastX, lastY);
+      sendDrawing('start', lastX, lastY);
+    }
+
+    function draw(e) {
+      if (!drawing || !myTurn) return;
+      e.preventDefault();
+      const pos = getCanvasCoords(e);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.strokeStyle = colorPicker.value;
+      ctx.lineWidth = brushSize.value;
+      ctx.stroke();
+      sendDrawing('move', pos.x, pos.y);
+      lastX = pos.x; lastY = pos.y;
+    }
+
+    function endDrawing(e) {
+      if (!myTurn) return;
+      drawing = false;
+      ctx.closePath();
+      sendDrawing('end');
+    }
+
+    function getCanvasCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      let clientX, clientY;
+      if (e.touches) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    }
+
+    function sendDrawing(type, x, y) {
+      if (!pairedConn || !myTurn) return;
+      pairedConn.send({ type: 'draw', drawType: type, x, y, color: colorPicker.value, size: brushSize.value });
+    }
+
+    function handleRemoteDraw(data) {
+      if (myTurn) return;
+      ctx.strokeStyle = data.color;
+      ctx.lineWidth = data.size;
+      if (data.drawType === 'start') {
+        ctx.beginPath(); ctx.moveTo(data.x, data.y);
+      } else if (data.drawType === 'move') {
+        ctx.lineTo(data.x, data.y); ctx.stroke();
+      } else if (data.drawType === 'end') {
+        ctx.closePath();
+      }
+    }
+
+    function clearCanvas(send = true) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (send && pairedConn && myTurn) pairedConn.send({ type: 'clear' });
+    }
+
+    clearBtn.addEventListener('click', () => clearCanvas());
+
+    // ---------- منطق بازی ----------
+    function pickNewWord() {
+      currentWord = WORDS[Math.floor(Math.random() * WORDS.length)];
+      wordDisplay.textContent = myTurn ? `🎨 کلمه تو: ${currentWord}` : '';
+    }
+
+    function swapRoles() {
+      myTurn = !myTurn;
+      clearCanvas(true);
+      pickNewWord();
+      setDrawToolsEnabled(myTurn);
+      roleDisplay.textContent = myTurn ? '🖌️ نوبت تو برای نقاشی' : '🔍 حدس بزن!';
+      if (!myTurn) wordDisplay.textContent = '';
+    }
+
+    function updateScoreDisplay() {
+      scoreDisplay.textContent = `🏆 ${score.me} - ${score.other}`;
+    }
+
+    function handleCorrectGuess(guesser) {
+      if (guesser === 'me') {
+        score.me++;
+        addMessage('✅ حدس درست! یک امتیاز گرفتی.', 'system');
+      } else {
+        score.other++;
+        addMessage('🎯 دوستت درست حدس زد!', 'system');
+      }
+      updateScoreDisplay();
+      if (pairedConn) pairedConn.send({ type: 'swap' });
+      swapRoles();
+    }
+
+    function skipWord() {
+      if (!myTurn) return;
+      pickNewWord();
+      clearCanvas(true);
+      addMessage('⏭️ کلمه رد شد.', 'system');
+      if (pairedConn) pairedConn.send({ type: 'skipWord' });
+    }
+
+    skipBtn.addEventListener('click', skipWord);
+
+    // ---------- چت ----------
+    function addMessage(text, sender = 'other') {
+      const div = document.createElement('div');
+      div.className = `message ${sender === 'self' ? 'self' : ''}`;
+      div.textContent = text;
+      messageContainer.appendChild(div);
+      messageContainer.scrollTop = messageContainer.scrollHeight;
+    }
+
+    function sendChat(text) {
+      if (!pairedConn) return;
+      pairedConn.send({ type: 'chat', text });
+      addMessage(text, 'self');
+      if (!myTurn && text.trim().toLowerCase() === currentWord.toLowerCase()) {
+        handleCorrectGuess('me');
+      }
+    }
+
+    sendBtn.addEventListener('click', () => {
+      const text = chatInput.value.trim();
+      if (text) { sendChat(text); chatInput.value = ''; }
+    });
+    chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendBtn.click(); });
+
+    // ---------- اتصال و جفت‌شدن خودکار ----------
+    function updateUsersUI() {
+      usersContainer.innerHTML = `<span class="user-chip">👤 ${myName}</span>`;
+      if (isPaired && pairedName) {
+        usersContainer.innerHTML += `<span class="user-chip" style="background:#7c5cfc;">👤 ${pairedName}</span>`;
+      }
+    }
+
+    function setupPairConnection(conn) {
+      if (pairedConn) return;
+      pairedConn = conn;
+      isPaired = true;
+
+      conn.on('open', () => {
+        pairedPeerId = conn.peer;
+        if (!conn.metadata?.incoming) {
+          conn.send({ type: 'HELLO', name: myName });
+        }
+        // پاک‌سازی صف
+        if (mqttClient && mqttClient.connected) {
+          mqttClient.publish('doodle_pairing', '', { retain: true });
+        }
+        addMessage(`🎉 به ${myName} و ${pairedName || 'یار جدید'} جفت شدید!`, 'system');
+        updateUsersUI();
+        // شروع بازی: یکی تصادفی نقاش شود
+        myTurn = Math.random() < 0.5;
+        conn.send({ type: 'initTurn', myTurn: !myTurn }); // برعکس برای حریف
+        swapRoles();
+        updateScoreDisplay();
+      });
+
+      conn.on('data', (data) => {
+        switch (data.type) {
+          case 'HELLO':
+            pairedName = data.name;
+            updateUsersUI();
+            addMessage(`✨ ${data.name} به شما متصل شد.`, 'system');
+            break;
+          case 'initTurn':
+            myTurn = data.myTurn;
+            swapRoles();
+            updateScoreDisplay();
+            break;
+          case 'draw':
+            handleRemoteDraw(data);
+            break;
+          case 'clear':
+            clearCanvas(false);
+            break;
+          case 'chat':
+            addMessage(data.text, 'other');
+            if (myTurn && data.text.trim().toLowerCase() === currentWord.toLowerCase()) {
+              handleCorrectGuess('other');
+            }
+            break;
+          case 'swap':
+            swapRoles();
+            break;
+          case 'skipWord':
+            if (myTurn) { pickNewWord(); clearCanvas(true); }
+            break;
+        }
+      });
+
+      conn.on('close', () => {
+        const name = pairedName || 'یار';
+        addMessage(`🚪 ${name} خارج شد. در انتظار یار جدید...`, 'system');
+        pairedConn = null; pairedPeerId = null; pairedName = ''; isPaired = false;
+        updateUsersUI();
+        subscribeToPairing();
+      });
+    }
+
+    function subscribeToPairing() {
+      if (!mqttClient || !mqttClient.connected || !myPeerId) return;
+      mqttClient.subscribe('doodle_pairing');
+      setTimeout(() => {
+        if (!isPaired && !pairedConn) {
+          mqttClient.publish('doodle_pairing', JSON.stringify({ peerId: myPeerId, name: myName }), { retain: true });
+          statusLabel.innerText = '⏳ منتظر یار...';
+          addMessage('⏳ منتظر نفر بعدی...', 'system');
+        }
+      }, 1500);
+    }
+
+    function handlePairingMessage(topic, message) {
+      if (topic !== 'doodle_pairing' || isPaired || pairedConn) return;
+      let payload;
+      try { payload = JSON.parse(message.toString()); } catch(e) { return; }
+      if (!payload || !payload.peerId || payload.peerId === myPeerId) return;
+
+      statusLabel.innerText = '🔄 اتصال به یار...';
+      addMessage(`🔗 اتصال به ${payload.name || payload.peerId}...`, 'system');
+      const conn = peer.connect(payload.peerId, { reliable: true, metadata: { incoming: false } });
+      if (conn) {
+        mqttClient.publish('doodle_pairing', '', { retain: true });
+        setupPairConnection(conn);
+      }
+    }
+
+    function initPeerAndMqtt() {
+      const iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+      ];
+      peer = new Peer(null, { debug: 0, config: { iceServers } });
+
+      peer.on('open', (id) => {
+        myPeerId = id;
+        statusLabel.innerText = `🆔 ${id.substring(0,6)}`;
+        updateUsersUI();
+
+        mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+        mqttClient.on('connect', () => {
+          statusLabel.innerText = '✅ متصل به سرور';
+          mqttClient.on('message', handlePairingMessage);
+          subscribeToPairing();
+        });
+        mqttClient.on('close', () => statusLabel.innerText = '⚠️ قطع MQTT');
+      });
+
+      peer.on('connection', (conn) => {
+        if (isPaired) return;
+        conn.metadata = { incoming: true };
+        setupPairConnection(conn);
+      });
+
+      peer.on('disconnected', () => statusLabel.innerText = '⚠️ Peer قطع شد');
+      peer.on('error', (err) => statusLabel.innerText = `⚠️ خطا: ${err.message}`);
+    }
+
+    // ---------- رویدادهای ورود ----------
+    startBtn.addEventListener('click', () => {
+      const name = nameInput.value.trim();
+      if (!name) return alert('نام خود را وارد کنید');
+      myName = name;
+      loginBox.style.display = 'none';
+      app.style.display = 'flex';
+      updateUsersUI();
+      initPeerAndMqtt();
+    });
+
+    // ---------- رویدادهای نقاشی ----------
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', endDrawing);
+    canvas.addEventListener('mouseleave', endDrawing);
+    canvas.addEventListener('touchstart', startDrawing, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', endDrawing);
+
+    setDrawToolsEnabled(false);
+    roleDisplay.textContent = 'منتظر اتصال...';
+  })();
+</script>
+</body>
+</html>
