@@ -162,7 +162,7 @@
   // ========== متغیرهای اصلی ==========
   const USER_ID = 'u' + Math.random().toString(36).substring(2, 11);
   let myName = '', roomId = 'doodle_room';
-  let mqtt = null;
+  let mqttClient = null;          // ← تغییر نام به mqttClient
   let joinTime = Date.now();
 
   let users = new Map();           // userId -> { name, joinTime, score, lastHeartbeat, timer }
@@ -204,8 +204,8 @@
     else addMessageToUI(text, 'other', senderName);
     chatHistory.unshift({ text, senderName: (sender === 'self' ? myName : senderName), isSystem: (sender === 'system'), timestamp: Date.now() });
     if (chatHistory.length > MAX_HISTORY) chatHistory.pop();
-    if (isHost && mqtt?.connected) {
-      mqtt.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) }));
+    if (isHost && mqttClient?.connected) {
+      mqttClient.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) }));
     }
   }
 
@@ -279,8 +279,8 @@
   }
 
   function sendDraw(type, x, y) {
-    if (!mqtt?.connected) return;
-    mqtt.publish(`doodle/${roomId}/draw`, JSON.stringify({
+    if (!mqttClient?.connected) return;
+    mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({
       type: 'draw', drawType: type, x, y,
       color: dom.colorPicker.value, size: dom.brushSize.value, userId: USER_ID
     }));
@@ -344,17 +344,17 @@
 
   function clearCanvas(send = true) {
     ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
-    if (send && isDrawer && mqtt) {
-      mqtt.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'clear', userId: USER_ID }));
+    if (send && isDrawer && mqttClient) {
+      mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'clear', userId: USER_ID }));
     }
   }
   dom.clearBtn.onclick = () => clearCanvas();
 
   function sendCanvasSync() {
-    if (!isDrawer || !mqtt) return;
+    if (!isDrawer || !mqttClient) return;
     try {
       const dataUrl = dom.canvas.toDataURL('image/png');
-      mqtt.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'canvas_sync', image: dataUrl, userId: USER_ID }));
+      mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'canvas_sync', image: dataUrl, userId: USER_ID }));
     } catch(e) {}
   }
 
@@ -405,7 +405,7 @@
     dom.requestDrawBtn.disabled = true;
     dom.requestDrawBtn.textContent = '🎨 در حال نقاشی...';
     startDrawerTimer(now);
-    mqtt.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
+    mqttClient.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
     setTimeout(() => sendCanvasSync(), 100);
   }
 
@@ -420,8 +420,8 @@
     stopDrawerTimer();
     dom.requestDrawBtn.disabled = false;
     dom.requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
-    mqtt.publish(`doodle/${roomId}/drawer`, '', { retain: true });
-    mqtt.publish(`doodle/${roomId}/drawer_finished`, JSON.stringify({ userId: USER_ID }));
+    mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
+    mqttClient.publish(`doodle/${roomId}/drawer_finished`, JSON.stringify({ userId: USER_ID }));
   }
 
   function setDrawerFromRemote(drawer) {
@@ -440,13 +440,13 @@
 
   // ========== چت و حدس ==========
   function sendChat(text) {
-    if (!mqtt?.connected) return;
+    if (!mqttClient?.connected) return;
     const msg = { type: 'chat', text, userId: USER_ID, name: myName, timestamp: Date.now() };
-    mqtt.publish(`doodle/${roomId}/chat`, JSON.stringify(msg));
+    mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify(msg));
     addMessage(text, 'self');
     if (!isDrawer && currentDrawer && text.trim().toLowerCase() === currentWord.toLowerCase()) {
       const remaining = Math.max(0, DRAW_TIME - Math.floor((Date.now() - currentDrawer.startTime) / 1000));
-      mqtt.publish(`doodle/${roomId}/chat`, JSON.stringify({
+      mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify({
         type: 'correct_guess',
         guesserId: USER_ID,
         guesserName: myName,
@@ -478,7 +478,7 @@
       isHost = true;
       hostId = USER_ID;
       addMessage('👑 شما میزبان اتاق شدید.', 'system');
-      mqtt.publish(`doodle/${roomId}/host`, JSON.stringify({ hostId: USER_ID }), { retain: true });
+      mqttClient.publish(`doodle/${roomId}/host`, JSON.stringify({ hostId: USER_ID }), { retain: true });
       broadcastQueue();
       if (!currentDrawer && drawQueue.length > 0) assignNextDrawer();
     } else if (newHost !== USER_ID && isHost) {
@@ -490,13 +490,13 @@
   }
 
   function broadcastQueue() {
-    if (!isHost || !mqtt) return;
-    mqtt.publish(`doodle/${roomId}/queue`, JSON.stringify({ queue: drawQueue, hostId: USER_ID }), { retain: true });
+    if (!isHost || !mqttClient) return;
+    mqttClient.publish(`doodle/${roomId}/queue`, JSON.stringify({ queue: drawQueue, hostId: USER_ID }), { retain: true });
   }
 
   function requestToDraw() {
     if (isDrawer) return;
-    mqtt.publish(`doodle/${roomId}/draw_request`, JSON.stringify({ userId: USER_ID, name: myName }));
+    mqttClient.publish(`doodle/${roomId}/draw_request`, JSON.stringify({ userId: USER_ID, name: myName }));
     addMessage('درخواست نقاشی شما ثبت شد.', 'system');
   }
 
@@ -515,15 +515,15 @@
     if (drawQueue.length === 0) return;
     const nextId = drawQueue.shift();
     broadcastQueue();
-    mqtt.publish(`doodle/${roomId}/assign_drawer`, JSON.stringify({ userId: nextId }));
+    mqttClient.publish(`doodle/${roomId}/assign_drawer`, JSON.stringify({ userId: nextId }));
   }
 
   // ========== Heartbeat و مدیریت کاربران ==========
   function startHeartbeat() {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = setInterval(() => {
-      if (mqtt?.connected) {
-        mqtt.publish(`doodle/${roomId}/ping/${USER_ID}`, JSON.stringify({ userId: USER_ID, timestamp: Date.now() }));
+      if (mqttClient?.connected) {
+        mqttClient.publish(`doodle/${roomId}/ping/${USER_ID}`, JSON.stringify({ userId: USER_ID, timestamp: Date.now() }));
       }
     }, HEARTBEAT_INTERVAL);
   }
@@ -563,7 +563,7 @@
     }, HEARTBEAT_TIMEOUT);
   }
 
-  // ========== MQTT ==========
+  // ========== MQTT پیام‌ها ==========
   function onMqttMessage(topic, message) {
     const payload = message.toString();
     if (!payload) return;
@@ -699,37 +699,42 @@
       try {
         const data = JSON.parse(payload);
         if (isHost && data.userId !== USER_ID) {
-          mqtt.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) }));
+          mqttClient.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) }));
         }
       } catch(e) {}
     }
   }
 
   function publishMyInfo() {
-    if (!mqtt?.connected) return;
-    mqtt.publish(`doodle/${roomId}/info`, JSON.stringify({ userId: USER_ID, name: myName, joinTime }));
+    if (!mqttClient?.connected) return;
+    mqttClient.publish(`doodle/${roomId}/info`, JSON.stringify({ userId: USER_ID, name: myName, joinTime }));
   }
 
   function initMqtt() {
-    mqtt = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
-    mqtt.on('connect', () => {
+    // استفاده از شیء سراسری window.mqtt (که توسط کتابخانه ایجاد شده)
+    if (typeof window.mqtt === 'undefined') {
+      dom.statusLabel.innerText = '❌ کتابخانه MQTT بارگذاری نشد';
+      return;
+    }
+    mqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+    mqttClient.on('connect', () => {
       dom.statusLabel.innerText = '✅ متصل';
       // اشتراک در تمام تاپیک‌های لازم
       const topics = ['chat', 'draw', 'drawer', 'draw_request', 'drawer_finished', 'assign_drawer', 'queue', 'host', 'info', 'ping/+', 'history_update', 'request_history'];
-      topics.forEach(t => mqtt.subscribe(`doodle/${roomId}/${t}`));
-      mqtt.on('message', onMqttMessage);
+      topics.forEach(t => mqttClient.subscribe(`doodle/${roomId}/${t}`));
+      mqttClient.on('message', onMqttMessage);
       publishMyInfo();
       startHeartbeat();
       setTimeout(() => {
-        if (mqtt?.connected) mqtt.publish(`doodle/${roomId}/request_history`, JSON.stringify({ userId: USER_ID }));
+        if (mqttClient?.connected) mqttClient.publish(`doodle/${roomId}/request_history`, JSON.stringify({ userId: USER_ID }));
       }, 500);
       setTimeout(() => updateHost(), 1000);
     });
-    mqtt.on('error', (err) => { console.error(err); dom.statusLabel.innerText = '❌ خطا'; });
-    mqtt.on('close', () => { dom.statusLabel.innerText = '⚠️ قطع شده'; });
+    mqttClient.on('error', (err) => { console.error(err); dom.statusLabel.innerText = '❌ خطا'; });
+    mqttClient.on('close', () => { dom.statusLabel.innerText = '⚠️ قطع شده'; });
     window.addEventListener('beforeunload', () => {
       if (heartbeatInterval) clearInterval(heartbeatInterval);
-      if (mqtt?.connected) mqtt.end();
+      if (mqttClient?.connected) mqttClient.end();
     });
   }
 
