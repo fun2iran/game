@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>نقاشی گروهی هوشمند | MQTT</title>
+  <title>نقاشی گروهی پیشرفته | MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -93,7 +93,6 @@
     .host-chip { background:#ffb86c; color:#1e1e2f; }
     .queue-info { font-size:11px; color:#aaa; margin-right:6px; }
 
-    /* موبایل */
     @media (max-width: 600px) {
       .top-bar { flex-direction: column; align-items: stretch; }
       .tools { gap: 6px; }
@@ -107,7 +106,7 @@
 <body>
 
 <div id="loginBox" class="login">
-  <h2>🎨 نقاشی گروهی هوشمند</h2>
+  <h2>🎨 نقاشی گروهی پیشرفته</h2>
   <input type="text" id="roomInput" placeholder="شناسه اتاق (پیش‌فرض doodle_room)" autocomplete="off">
   <input type="text" id="nameInput" placeholder="نام شما" autocomplete="off">
   <button id="startBtn">ورود به اتاق</button>
@@ -150,12 +149,12 @@
     'ماشین', 'اتوبوس', 'قطار', 'هواپیما', 'دوچرخه', 'موتورسیکلت', 'کشتی', 'بالگرد', 'تراکتور', 'آمبولانس',
     'گربه', 'سگ', 'گاو', 'اسب', 'خرگوش', 'موش', 'پرنده', 'ماهی', 'شیر', 'فیل',
     'خانه', 'درخت', 'گل', 'کوه', 'رودخانه', 'دریاچه', 'ابر', 'باران', 'آفتاب', 'ستاره',
-    'قلب', 'مربع', 'دایره', 'مثلث', 'ستاره', 'ابر', 'خانه', 'درخت', 'گل', 'پروانه',
-    'مداد', 'کتاب', 'مدرسه', 'قلم', 'خط کش', 'پاک کن', 'کیف', 'صندلی', 'میز', 'تخته سیاه',
-    'پیتزا', 'برگر', 'بستنی', 'کیک', 'نان', 'پنیر', 'شیر', 'آب میوه', 'قهوه', 'چای',
-    'عینک', 'کلاه', 'کفش', 'تی شرت', 'شلوار', 'دامن', 'کاپشن', 'چتر', 'ساعت', 'زنگ',
-    'توپ', 'عروسک', 'ماشین اسباب بازی', 'قطار اسباب بازی', 'پازل', 'لگو', 'بادکنک', 'بازی ویدئویی', 'کتاب داستان', 'نقاشی',
-    'تلفن', 'کامپیوتر', 'تلویزیون', 'هدفون', 'دوربین', 'چراغ', 'باتری', 'صفحه کلید', 'موشواره', 'مانیتور'
+    'قلب', 'مربع', 'دایره', 'مثلث', 'پروانه', 'مداد', 'کتاب', 'مدرسه', 'قلم', 'خط کش',
+    'پاک کن', 'کیف', 'صندلی', 'میز', 'تخته سیاه', 'پیتزا', 'برگر', 'بستنی', 'کیک', 'نان',
+    'پنیر', 'شیر', 'آب میوه', 'قهوه', 'چای', 'عینک', 'کلاه', 'کفش', 'تی شرت', 'شلوار',
+    'دامن', 'کاپشن', 'چتر', 'ساعت', 'زنگ', 'توپ', 'عروسک', 'ماشین اسباب بازی', 'قطار اسباب بازی', 'پازل',
+    'لگو', 'بادکنک', 'بازی ویدئویی', 'کتاب داستان', 'نقاشی', 'تلفن', 'کامپیوتر', 'تلویزیون', 'هدفون', 'دوربین',
+    'چراغ', 'باتری', 'صفحه کلید', 'موشواره', 'مانیتور', 'آب', 'آتش', 'باد', 'خاک', 'برف'
   ];
 
   const DRAW_TIME = 120;
@@ -164,7 +163,7 @@
   const THROTTLE_MS = 30;
   const MAX_HISTORY = 20;
 
-  // ========== عناصر DOM ==========
+  // ========== DOM elements ==========
   const dom = {
     loginBox: document.getElementById('loginBox'),
     roomInput: document.getElementById('roomInput'),
@@ -195,7 +194,7 @@
   let mqttClient = null;
   let joinTime = Date.now();
 
-  let users = new Map();           // userId -> { name, joinTime, score, lastHeartbeat, timer }
+  let users = new Map();        // userId -> { name, score, joinTime, lastHeartbeat, timer }
   let currentDrawer = null;
   let isDrawer = false;
   let currentWord = '';
@@ -210,7 +209,7 @@
   let throttleTimer = null;
   let heartbeatInterval = null;
   let drawerAnimFrame = null;
-  let userListBroadcastInterval = null; // هر 5 ثانیه لیست کاربران را پخش می‌کند
+  let userListBroadcastInterval = null;
 
   // ========== توابع کمکی ==========
   function formatTime(sec) {
@@ -252,7 +251,7 @@
     dom.messageContainer.scrollTop = dom.messageContainer.scrollHeight;
   }
 
-  // نمایش لیست کاربران با امتیاز (مرتب شده)
+  // به‌روزرسانی لیست کاربران در UI (با مرتب‌سازی بر اساس امتیاز)
   function updateUsersUI() {
     const list = [];
     list.push({ id: USER_ID, name: myName, score: users.get(USER_ID)?.score || 0, isSelf: true });
@@ -270,6 +269,7 @@
     dom.scoreDisplay.textContent = `🏆 ${users.get(USER_ID)?.score || 0}`;
   }
 
+  // افزودن امتیاز به یک کاربر
   function addScore(userId, points) {
     let u = users.get(userId);
     if (u) {
@@ -279,13 +279,47 @@
       users.set(USER_ID, { name: myName, joinTime, score: points, lastHeartbeat: Date.now() });
     }
     updateUsersUI();
-    // اگر میزبان هستیم، لیست کامل را پخش می‌کنیم (با تأخیر کم)
     if (isHost) {
+      // میزبان لیست کاربران را پخش می‌کند
       setTimeout(() => broadcastUserList(), 500);
     }
   }
 
-  // پخش لیست کامل کاربران توسط میزبان
+  // ========== تعیین میزبان با مقایسه USER_ID (حروف الفبا) ==========
+  function determineHostId() {
+    let allUserIds = [USER_ID];
+    for (let uid of users.keys()) allUserIds.push(uid);
+    // کوچک‌ترین userId (مقایسه رشته‌ای)
+    allUserIds.sort();
+    return allUserIds[0];
+  }
+
+  function updateHost() {
+    const newHostId = determineHostId();
+    if (newHostId === USER_ID && !isHost) {
+      // من میزبان جدید هستم
+      isHost = true;
+      hostId = USER_ID;
+      addMessage('👑 شما میزبان اتاق شدید. مدیریت صف با شماست.', 'system');
+      mqttClient.publish(`doodle/${roomId}/host`, JSON.stringify({ hostId: USER_ID }), { retain: true });
+      broadcastQueue();
+      broadcastUserList();
+      if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
+      userListBroadcastInterval = setInterval(() => broadcastUserList(), 5000);
+      if (!currentDrawer && drawQueue.length > 0) assignNextDrawer();
+    } else if (newHostId !== USER_ID && isHost) {
+      // من دیگر میزبان نیستم
+      isHost = false;
+      hostId = newHostId;
+      if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
+      addMessage(`میزبان جدید: ${users.get(newHostId)?.name || 'کاربر'}`, 'system');
+    } else if (newHostId !== USER_ID && !isHost) {
+      hostId = newHostId;
+    }
+    updateUsersUI();
+  }
+
+  // پخش لیست کامل کاربران (فقط توسط میزبان)
   function broadcastUserList() {
     if (!isHost || !mqttClient) return;
     const userList = [];
@@ -305,9 +339,12 @@
     const newUsers = new Map();
     for (let u of data.users) {
       if (u.userId === USER_ID) {
-        // اطلاعات خودم: فقط امتیاز را به‌روز کن
-        const myScore = u.score;
-        users.set(USER_ID, { name: myName, joinTime, score: myScore, lastHeartbeat: Date.now() });
+        // خودمان: فقط امتیاز را به‌روز کن (نام و joinTime خودمان را نگه دار)
+        const oldScore = users.get(USER_ID)?.score || 0;
+        const newScore = u.score;
+        if (newScore !== oldScore) {
+          users.set(USER_ID, { name: myName, joinTime, score: newScore, lastHeartbeat: Date.now() });
+        }
       } else {
         newUsers.set(u.userId, {
           name: u.name,
@@ -318,24 +355,23 @@
         });
       }
     }
-    // به‌روزرسانی map
+    // تشخیص کاربران جدید و حذف شده
     for (let [uid, u] of newUsers.entries()) {
       if (!users.has(uid)) {
         addMessage(`${u.name} وارد اتاق شد.`, 'system');
       }
     }
-    // حذف کاربرانی که در لیست جدید نیستند
     for (let [uid, u] of users.entries()) {
       if (uid !== USER_ID && !newUsers.has(uid)) {
         addMessage(`${u.name} خارج شد.`, 'system');
       }
     }
     users = newUsers;
-    // خودمان را دوباره اضافه می‌کنیم (امتیاز قبلی)
-    const myOldScore = users.get(USER_ID)?.score || 0;
-    users.set(USER_ID, { name: myName, joinTime, score: myOldScore, lastHeartbeat: Date.now() });
+    // خودمان را دوباره اضافه می‌کنیم (امتیاز قبلی حفظ شود)
+    const myScore = users.get(USER_ID)?.score || 0;
+    users.set(USER_ID, { name: myName, joinTime, score: myScore, lastHeartbeat: Date.now() });
     updateUsersUI();
-    updateHost(); // بررسی مجدد میزبان
+    updateHost(); // بررسی مجدد میزبان (در صورت تغییر)
   }
 
   // ========== بوم و نقاشی ==========
@@ -580,40 +616,6 @@
   }
 
   // ========== نوبت‌دهی (Host) ==========
-  function determineHost() {
-    let oldestId = USER_ID;
-    let oldestTime = joinTime;
-    for (let [uid, u] of users.entries()) {
-      if (u.joinTime < oldestTime) {
-        oldestTime = u.joinTime;
-        oldestId = uid;
-      }
-    }
-    return oldestId;
-  }
-
-  function updateHost() {
-    const newHost = determineHost();
-    if (newHost === USER_ID && !isHost) {
-      isHost = true;
-      hostId = USER_ID;
-      addMessage('👑 شما میزبان اتاق شدید. مدیریت صف با شماست.', 'system');
-      mqttClient.publish(`doodle/${roomId}/host`, JSON.stringify({ hostId: USER_ID }), { retain: true });
-      broadcastQueue();
-      broadcastUserList(); // پخش لیست کامل
-      // شروع پخش دوره‌ای لیست کاربران (هر ۵ ثانیه)
-      if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
-      userListBroadcastInterval = setInterval(() => broadcastUserList(), 5000);
-      if (!currentDrawer && drawQueue.length > 0) assignNextDrawer();
-    } else if (newHost !== USER_ID && isHost) {
-      isHost = false;
-      hostId = newHost;
-      if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
-      addMessage(`میزبان جدید: ${users.get(newHost)?.name || 'کاربر'}`, 'system');
-    }
-    updateUsersUI();
-  }
-
   function broadcastQueue() {
     if (!isHost || !mqttClient) return;
     mqttClient.publish(`doodle/${roomId}/queue`, JSON.stringify({ queue: drawQueue, hostId: USER_ID }), { retain: true });
@@ -797,7 +799,7 @@
             users.delete(userId);
             addMessage(`${name} قطع شد.`, 'system');
             updateUsersUI();
-            updateHost();
+            updateHost(); // میزبان مجدد محاسبه می‌شود
             if (isHost) {
               const idx = drawQueue.indexOf(userId);
               if (idx !== -1) drawQueue.splice(idx, 1);
