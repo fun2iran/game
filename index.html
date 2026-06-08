@@ -3,30 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>نقاشی و حدس | جفت‌شدن خودکار</title>
+  <title>نقاشی و حدس گروهی</title>
   <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
-      background: #1e1e2f;
-      color: #fff;
+      background: #1e1e2f; color: #fff;
       font-family: 'Segoe UI', Tahoma, sans-serif;
-      height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      touch-action: manipulation;
+      height: 100dvh; display: flex; flex-direction: column;
+      overflow: hidden; touch-action: manipulation;
     }
     .login {
       position: fixed; top:0; left:0; right:0; bottom:0;
-      background: #1e1e2f;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-      gap: 15px;
+      background: #1e1e2f; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      z-index: 100; gap: 15px;
     }
     .login h2 { color: #ffb86c; }
     .login input {
@@ -37,20 +29,19 @@
       padding: 12px 30px; border-radius: 30px; border: none;
       background: #7c5cfc; color: #fff; font-weight: bold; cursor: pointer; font-size: 16px;
     }
-    #app {
-      display: none; flex-direction: column; height: 100%; padding: 8px;
-    }
+    #app { display: none; flex-direction: column; height: 100%; padding: 8px; }
     .top-bar {
       display: flex; align-items: center; justify-content: space-between;
-      background: #2d2d44; padding: 10px; border-radius: 12px; margin-bottom: 8px; font-size: 14px;
+      background: #2d2d44; padding: 10px; border-radius: 12px; margin-bottom: 8px; font-size: 14px; flex-wrap: wrap;
     }
     .status { color: #ffb86c; }
     .game-info {
-      font-size: 14px; text-align: center; margin: 4px 0; display: flex; justify-content: space-between;
+      font-size: 14px; text-align: center; margin: 4px 0;
+      display: flex; justify-content: space-between; align-items: center;
     }
     canvas {
       background: #fff; border-radius: 12px; touch-action: none;
-      width: 100%; flex: 1; display: block; margin-bottom: 8px;
+      width: 100%; flex: 1; display: block; margin-bottom: 8px; min-height: 0;
     }
     .tools {
       display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
@@ -58,55 +49,60 @@
     .tools input[type="color"] { width: 40px; height: 40px; border: none; background: none; }
     .tools input[type="range"] { flex: 1; }
     button {
-      background: #7c5cfc; color: #fff; border: none; border-radius: 8px; padding: 8px 12px; font-weight: bold; cursor: pointer;
+      background: #7c5cfc; color: #fff; border: none; border-radius: 8px; padding: 8px 12px;
+      font-weight: bold; cursor: pointer; white-space: nowrap;
     }
+    button:disabled { opacity: 0.5; cursor: default; }
     .chat-area {
       background: #2d2d44; border-radius: 12px; padding: 8px; display: flex; flex-direction: column;
       max-height: 25vh; min-height: 120px;
     }
-    .messages {
-      flex: 1; overflow-y: auto; margin-bottom: 8px; font-size: 14px;
-    }
+    .messages { flex: 1; overflow-y: auto; margin-bottom: 8px; font-size: 14px; }
     .message {
       margin-bottom: 4px; padding: 4px 8px; background: #3a3a5a; border-radius: 8px; word-break: break-word;
     }
     .message.self { background: #5a4a8a; text-align: left; }
-    .chat-input {
-      display: flex; gap: 6px;
-    }
+    .chat-input { display: flex; gap: 6px; }
     .chat-input input {
       flex: 1; padding: 10px; border-radius: 8px; border: none; background: #3a3a5a; color: #fff;
     }
-    .hidden { display: none !important; }
     .user-chip {
       background: #2a3942; padding: 4px 12px; border-radius: 20px; font-size: 12px; margin: 2px;
+      white-space: nowrap;
     }
+    .drawer-chip { background: #7c5cfc; }
+    #requestDrawBtn { margin: 0 8px; }
+    .timer { color: #ffb86c; font-weight: bold; }
   </style>
 </head>
 <body>
 
 <div id="loginBox" class="login">
-  <h2>🎨 نقاشی و حدس</h2>
+  <h2>🎨 نقاشی و حدس گروهی</h2>
+  <input type="text" id="roomInput" placeholder="شناسه اتاق (پیش‌فرض doodle_room)" autocomplete="off">
   <input type="text" id="nameInput" placeholder="نام شما" autocomplete="off">
-  <button id="startBtn">ورود و جفت شدن</button>
+  <button id="startBtn">ورود به اتاق</button>
 </div>
 
 <div id="app">
   <div class="top-bar">
     <span class="status" id="statusLabel">در حال اتصال...</span>
-    <div id="usersContainer" style="display:flex; gap:6px;"></div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
+      <button id="requestDrawBtn" disabled>🎨 من می‌خواهم نقاشی کنم</button>
+      <span id="drawerTimer" class="timer"></span>
+    </div>
+    <div id="usersContainer" style="display:flex; gap:6px; flex-wrap: wrap;"></div>
   </div>
   <div class="game-info">
     <span id="roleDisplay"></span>
     <span id="wordDisplay" style="font-weight:bold; color:#ffb86c;"></span>
-    <span id="scoreDisplay">🏆 0 - 0</span>
+    <span id="scoreDisplay">🏆 0</span>
   </div>
   <canvas id="drawCanvas"></canvas>
   <div class="tools" id="toolbar">
     <input type="color" id="colorPicker" value="#000000">
     <input type="range" id="brushSize" min="2" max="20" value="4">
     <button id="clearBtn">پاک کردن</button>
-    <button id="skipBtn">رد کردن کلمه</button>
   </div>
   <div class="chat-area">
     <div class="messages" id="messageContainer"></div>
@@ -119,11 +115,12 @@
 
 <script>
   (function(){
-    // ---------- لیست کلمات ----------
+    // ---------- کلمات ----------
     const WORDS = ['سیب', 'موز', 'ماشین', 'گربه', 'خانه', 'درخت', 'آفتاب', 'ماهی', 'گل', 'کتاب', 'قلب', 'ستاره', 'پیتزا', 'هواپیما', 'ساعت', 'فیل', 'موبایل', 'عینک', 'مداد', 'کفش'];
 
     // ---------- عناصر ----------
     const loginBox = document.getElementById('loginBox');
+    const roomInput = document.getElementById('roomInput');
     const nameInput = document.getElementById('nameInput');
     const startBtn = document.getElementById('startBtn');
     const app = document.getElementById('app');
@@ -132,7 +129,6 @@
     const colorPicker = document.getElementById('colorPicker');
     const brushSize = document.getElementById('brushSize');
     const clearBtn = document.getElementById('clearBtn');
-    const skipBtn = document.getElementById('skipBtn');
     const toolbar = document.getElementById('toolbar');
     const messageContainer = document.getElementById('messageContainer');
     const chatInput = document.getElementById('chatInput');
@@ -142,27 +138,33 @@
     const wordDisplay = document.getElementById('wordDisplay');
     const scoreDisplay = document.getElementById('scoreDisplay');
     const usersContainer = document.getElementById('usersContainer');
+    const requestDrawBtn = document.getElementById('requestDrawBtn');
+    const drawerTimer = document.getElementById('drawerTimer');
 
     // ---------- حالت ----------
-    let myName = '';
+    let myName = '', roomId = 'doodle_room';
     let myPeerId = null;
     let peer = null;
     let mqttClient = null;
-    let pairedConn = null;
-    let pairedPeerId = null;
-    let pairedName = '';
-    let isPaired = false;
-    let myTurn = false;        // آیا نوبت من برای نقاشی است؟
+    // شبکه همتاها: Map<peerId, DataConnection>
+    const peers = new Map();
+
+    // نقاش فعلی
+    let currentDrawer = null;  // { peerId, name, startTime }
+    let isDrawer = false;       // آیا من نقاشم؟
+    let drawerTimerInterval = null;
+    const DRAW_TIME = 120; // ۲ دقیقه
+
     let currentWord = '';
-    let score = { me: 0, other: 0 };
+    let myScore = 0;
     let drawing = false;
     let lastX, lastY;
 
     // ---------- تنظیم بوم ----------
     function resizeCanvas() {
       const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * 0.96;
-      canvas.height = Math.min(window.innerHeight * 0.4, 350);
+      canvas.width = rect.width;
+      canvas.height = rect.height;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
     }
@@ -175,38 +177,36 @@
     }
 
     function startDrawing(e) {
-      if (!myTurn) return;
+      if (!isDrawer) return;
       e.preventDefault();
       drawing = true;
       const pos = getCanvasCoords(e);
       lastX = pos.x; lastY = pos.y;
       ctx.beginPath(); ctx.moveTo(lastX, lastY);
-      sendDrawing('start', lastX, lastY);
+      broadcastDrawing('start', lastX, lastY);
     }
 
     function draw(e) {
-      if (!drawing || !myTurn) return;
+      if (!drawing || !isDrawer) return;
       e.preventDefault();
       const pos = getCanvasCoords(e);
       ctx.lineTo(pos.x, pos.y);
       ctx.strokeStyle = colorPicker.value;
       ctx.lineWidth = brushSize.value;
       ctx.stroke();
-      sendDrawing('move', pos.x, pos.y);
+      broadcastDrawing('move', pos.x, pos.y);
       lastX = pos.x; lastY = pos.y;
     }
 
     function endDrawing(e) {
-      if (!myTurn) return;
+      if (!isDrawer) return;
       drawing = false;
       ctx.closePath();
-      sendDrawing('end');
+      broadcastDrawing('end');
     }
 
     function getCanvasCoords(e) {
       const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
       let clientX, clientY;
       if (e.touches) {
         clientX = e.touches[0].clientX;
@@ -215,16 +215,19 @@
         clientX = e.clientX;
         clientY = e.clientY;
       }
-      return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+      return { x: clientX - rect.left, y: clientY - rect.top };
     }
 
-    function sendDrawing(type, x, y) {
-      if (!pairedConn || !myTurn) return;
-      pairedConn.send({ type: 'draw', drawType: type, x, y, color: colorPicker.value, size: brushSize.value });
+    function broadcastDrawing(type, x, y) {
+      peers.forEach((conn) => {
+        if (conn.open) {
+          conn.send({ type: 'draw', drawType: type, x, y, color: colorPicker.value, size: brushSize.value });
+        }
+      });
     }
 
     function handleRemoteDraw(data) {
-      if (myTurn) return; // فقط حدس‌زننده نقاشی را می‌بیند
+      if (isDrawer) return; // نقاش نقاشی خودش را نمی‌بیند
       ctx.strokeStyle = data.color;
       ctx.lineWidth = data.size;
       if (data.drawType === 'start') {
@@ -238,53 +241,109 @@
 
     function clearCanvas(send = true) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (send && pairedConn && myTurn) pairedConn.send({ type: 'clear' });
+      if (send && isDrawer) {
+        peers.forEach((conn) => conn.send({ type: 'clear' }));
+      }
     }
-
     clearBtn.addEventListener('click', () => clearCanvas());
 
-    // ---------- منطق بازی ----------
+    // ---------- منطق نقاش ----------
     function pickNewWord() {
       currentWord = WORDS[Math.floor(Math.random() * WORDS.length)];
-      wordDisplay.textContent = myTurn ? `🎨 کلمه تو: ${currentWord}` : '';
+      wordDisplay.textContent = isDrawer ? `🎨 کلمه تو: ${currentWord}` : '';
     }
 
-    function swapRoles() {
-      // تابع جابه‌جایی واقعی نقش‌ها (فقط بعد از حدس درست)
-      myTurn = !myTurn;
-      clearCanvas(true);
+    function becomeDrawer() {
+      isDrawer = true;
+      currentDrawer = { peerId: myPeerId, name: myName, startTime: Date.now() };
       pickNewWord();
-      setDrawToolsEnabled(myTurn);
-      roleDisplay.textContent = myTurn ? '🖌️ نوبت تو برای نقاشی' : '🔍 حدس بزن!';
-      if (!myTurn) wordDisplay.textContent = '';
+      setDrawToolsEnabled(true);
+      roleDisplay.textContent = '🖌️ تو نقاشی';
+      requestDrawBtn.disabled = true;
+      requestDrawBtn.textContent = '🎨 در حال نقاشی...';
+      startDrawerTimer();
+      // انتشار وضعیت نقاش با MQTT (retained)
+      publishDrawerState();
+      // خبر به همتاها
+      peers.forEach(c => c.send({ type: 'drawer_active', drawer: currentDrawer }));
     }
 
-    function updateScoreDisplay() {
-      scoreDisplay.textContent = `🏆 ${score.me} - ${score.other}`;
+    function resignDrawer(byTimeout = false) {
+      if (!isDrawer) return;
+      isDrawer = false;
+      currentDrawer = null;
+      clearCanvas(true);
+      setDrawToolsEnabled(false);
+      roleDisplay.textContent = '🔍 حدس بزن';
+      wordDisplay.textContent = '';
+      stopDrawerTimer();
+      requestDrawBtn.disabled = false;
+      requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
+      // پاک‌سازی MQTT
+      publishDrawerState(null);
+      peers.forEach(c => c.send({ type: 'drawer_inactive' }));
     }
 
-    function handleCorrectGuess(guesser) {
-      if (guesser === 'me') {
-        score.me++;
-        addMessage('✅ حدس درست! یک امتیاز گرفتی.', 'system');
-      } else {
-        score.other++;
-        addMessage('🎯 دوستت درست حدس زد!', 'system');
+    function startDrawerTimer() {
+      let remaining = DRAW_TIME;
+      drawerTimer.textContent = `⏱ ${formatTime(remaining)}`;
+      drawerTimerInterval = setInterval(() => {
+        remaining--;
+        drawerTimer.textContent = `⏱ ${formatTime(remaining)}`;
+        if (remaining <= 0) {
+          clearInterval(drawerTimerInterval);
+          addMessage('⏰ زمان نقاشی تمام شد.', 'system');
+          resignDrawer(true);
+        }
+      }, 1000);
+    }
+
+    function stopDrawerTimer() {
+      if (drawerTimerInterval) {
+        clearInterval(drawerTimerInterval);
+        drawerTimerInterval = null;
       }
-      updateScoreDisplay();
-      if (pairedConn) pairedConn.send({ type: 'swap' });
-      swapRoles(); // بعد از حدس درست نوبت عوض می‌شود
+      drawerTimer.textContent = '';
     }
 
-    function skipWord() {
-      if (!myTurn) return;
-      pickNewWord();
-      clearCanvas(true);
-      addMessage('⏭️ کلمه رد شد.', 'system');
-      if (pairedConn) pairedConn.send({ type: 'skipWord' });
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
     }
 
-    skipBtn.addEventListener('click', skipWord);
+    // ---------- امتیاز و حدس ----------
+    function updateMyScoreDisplay() {
+      scoreDisplay.textContent = `🏆 ${myScore}`;
+    }
+
+    function handleCorrectGuess(guesserPeerId) {
+      // امتیاز به حدس‌زننده
+      if (guesserPeerId === myPeerId) {
+        myScore++;
+        updateMyScoreDisplay();
+        addMessage('✅ حدس درست! یک امتیاز گرفتی.', 'system');
+      }
+      // امتیاز به نقاش (همه می‌بینند)
+      if (currentDrawer && currentDrawer.peerId === myPeerId) {
+        myScore++;
+        updateMyScoreDisplay();
+        addMessage('🎯 یک نفر درست حدس زد، تو هم امتیاز گرفتی.', 'system');
+      }
+      // پخش امتیاز جدید برای همگام‌سازی (اختیاری)
+      broadcastScore();
+    }
+
+    function broadcastScore() {
+      peers.forEach(c => c.send({ type: 'score_update', peerId: myPeerId, score: myScore }));
+    }
+
+    function handleRemoteScore(data) {
+      // می‌توانیم جدول امتیازات را نگه داریم، اما فعلاً فقط برای نمایش لحظه‌ای
+      if (data.peerId !== myPeerId) {
+        addMessage(`🏆 ${data.peerId.substring(0,6)} امتیاز: ${data.score}`, 'other');
+      }
+    }
 
     // ---------- چت ----------
     function addMessage(text, sender = 'other') {
@@ -296,11 +355,14 @@
     }
 
     function sendChat(text) {
-      if (!pairedConn) return;
-      pairedConn.send({ type: 'chat', text });
+      peers.forEach(c => c.send({ type: 'chat', text, from: myPeerId }));
       addMessage(text, 'self');
-      if (!myTurn && text.trim().toLowerCase() === currentWord.toLowerCase()) {
-        handleCorrectGuess('me');
+      // بررسی حدس
+      if (!isDrawer && currentDrawer && text.trim().toLowerCase() === currentWord.toLowerCase()) {
+        handleCorrectGuess(myPeerId);
+        // به نقاش خبر حدس درست
+        const drawerConn = peers.get(currentDrawer.peerId);
+        if (drawerConn) drawerConn.send({ type: 'correct_guess', guesser: myPeerId });
       }
     }
 
@@ -310,61 +372,28 @@
     });
     chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendBtn.click(); });
 
-    // ---------- اتصال و جفت‌شدن خودکار ----------
-    function updateUsersUI() {
-      usersContainer.innerHTML = `<span class="user-chip">👤 ${myName}</span>`;
-      if (isPaired && pairedName) {
-        usersContainer.innerHTML += `<span class="user-chip" style="background:#7c5cfc;">👤 ${pairedName}</span>`;
-      }
+    // ---------- شبکه همتا ----------
+    function connectToPeer(peerId) {
+      if (peerId === myPeerId || peers.has(peerId)) return;
+      const conn = peer.connect(peerId, { reliable: true });
+      peers.set(peerId, conn);
+      setupConnection(conn, false);
     }
 
-    function setupPairConnection(conn) {
-      if (pairedConn) return;
-      pairedConn = conn;
-      isPaired = true;
-
+    function setupConnection(conn, isIncoming) {
       conn.on('open', () => {
-        pairedPeerId = conn.peer;
-        if (!conn.metadata?.incoming) {
-          conn.send({ type: 'HELLO', name: myName });
+        // ارسال اطلاعات خودم
+        conn.send({ type: 'HELLO', name: myName, peerId: myPeerId });
+        // اگر نقاش فعالی هست، به او اطلاع بده
+        if (isDrawer) {
+          conn.send({ type: 'drawer_active', drawer: { peerId: myPeerId, name: myName, startTime: Date.now() } });
         }
-        // پاک‌سازی صف
-        if (mqttClient && mqttClient.connected) {
-          mqttClient.publish('doodle_pairing', '', { retain: true });
-        }
-        addMessage(`🎉 به ${myName} و ${pairedName || 'یار جدید'} جفت شدید!`, 'system');
-        updateUsersUI();
-        
-        // تعیین تصادفی نوبت اولیه و ارسال به طرف مقابل
-        myTurn = Math.random() < 0.5;
-        conn.send({ type: 'initTurn', myTurn: !myTurn }); // برعکس برای حریف
-
-        // ⚠️ اصلاح: به‌جای swapRoles() اینجا مستقیماً UI را تنظیم می‌کنیم
-        clearCanvas(true);
-        pickNewWord();
-        setDrawToolsEnabled(myTurn);
-        roleDisplay.textContent = myTurn ? '🖌️ نوبت تو برای نقاشی' : '🔍 حدس بزن!';
-        if (!myTurn) wordDisplay.textContent = '';
-        updateScoreDisplay();
       });
 
       conn.on('data', (data) => {
         switch (data.type) {
           case 'HELLO':
-            pairedName = data.name;
-            updateUsersUI();
-            addMessage(`✨ ${data.name} به شما متصل شد.`, 'system');
-            break;
-          case 'initTurn':
-            // دریافت نوبت از طرف مقابل
-            myTurn = data.myTurn;
-            // ⚠️ اصلاح: مستقیماً UI را تنظیم می‌کنیم و دیگر swapRoles صدا زده نمی‌شود
-            clearCanvas(true);
-            pickNewWord();
-            setDrawToolsEnabled(myTurn);
-            roleDisplay.textContent = myTurn ? '🖌️ نوبت تو برای نقاشی' : '🔍 حدس بزن!';
-            if (!myTurn) wordDisplay.textContent = '';
-            updateScoreDisplay();
+            // ذخیره نام همتا (اختیاری)
             break;
           case 'draw':
             handleRemoteDraw(data);
@@ -373,57 +402,186 @@
             clearCanvas(false);
             break;
           case 'chat':
-            addMessage(data.text, 'other');
-            if (myTurn && data.text.trim().toLowerCase() === currentWord.toLowerCase()) {
-              handleCorrectGuess('other');
+            if (data.from !== myPeerId) {
+              addMessage(`${data.text}`, 'other');
+              // حدس بررسی شود (اگر نقاش نباشم و حدس بزنم)
+              if (!isDrawer && currentDrawer && data.text.trim().toLowerCase() === currentWord.toLowerCase()) {
+                handleCorrectGuess(myPeerId);
+                conn.send({ type: 'correct_guess', guesser: myPeerId });
+              }
             }
             break;
-          case 'swap':
-            swapRoles(); // اینجا جابه‌جایی واقعی رخ می‌دهد
+          case 'correct_guess':
+            // نقاش دریافت کرد
+            if (isDrawer && data.guesser !== myPeerId) {
+              handleCorrectGuess(data.guesser);
+            }
             break;
-          case 'skipWord':
-            if (myTurn) { pickNewWord(); clearCanvas(true); }
+          case 'drawer_active':
+            updateDrawer(data.drawer);
+            break;
+          case 'drawer_inactive':
+            if (!isDrawer) {
+              currentDrawer = null;
+              roleDisplay.textContent = '🔍 حدس بزن';
+              wordDisplay.textContent = '';
+              requestDrawBtn.disabled = false;
+              requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
+              stopDrawerTimer();
+            }
+            break;
+          case 'score_update':
+            handleRemoteScore(data);
             break;
         }
       });
 
       conn.on('close', () => {
-        const name = pairedName || 'یار';
-        addMessage(`🚪 ${name} خارج شد. در انتظار یار جدید...`, 'system');
-        pairedConn = null; pairedPeerId = null; pairedName = ''; isPaired = false;
+        peers.delete(conn.peer);
         updateUsersUI();
-        subscribeToPairing();
+        // اگر نقاش بود و قطع شد
+        if (currentDrawer && currentDrawer.peerId === conn.peer) {
+          currentDrawer = null;
+          if (!isDrawer) {
+            roleDisplay.textContent = '🔍 حدس بزن';
+            requestDrawBtn.disabled = false;
+            requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
+          }
+          stopDrawerTimer();
+          // پاک‌سازی MQTT
+          mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
+        }
       });
     }
 
-    function subscribeToPairing() {
-      if (!mqttClient || !mqttClient.connected || !myPeerId) return;
-      mqttClient.subscribe('doodle_pairing');
-      setTimeout(() => {
-        if (!isPaired && !pairedConn) {
-          mqttClient.publish('doodle_pairing', JSON.stringify({ peerId: myPeerId, name: myName }), { retain: true });
-          statusLabel.innerText = '⏳ منتظر یار...';
-          addMessage('⏳ منتظر نفر بعدی...', 'system');
-        }
-      }, 1500);
-    }
-
-    function handlePairingMessage(topic, message) {
-      if (topic !== 'doodle_pairing' || isPaired || pairedConn) return;
-      let payload;
-      try { payload = JSON.parse(message.toString()); } catch(e) { return; }
-      if (!payload || !payload.peerId || payload.peerId === myPeerId) return;
-
-      statusLabel.innerText = '🔄 اتصال به یار...';
-      addMessage(`🔗 اتصال به ${payload.name || payload.peerId}...`, 'system');
-      const conn = peer.connect(payload.peerId, { reliable: true, metadata: { incoming: false } });
-      if (conn) {
-        mqttClient.publish('doodle_pairing', '', { retain: true });
-        setupPairConnection(conn);
+    // ---------- MQTT ----------
+    function publishDrawerState(drawerObj) {
+      if (!mqttClient || !mqttClient.connected) return;
+      const topic = `doodle/${roomId}/drawer`;
+      if (drawerObj) {
+        mqttClient.publish(topic, JSON.stringify(drawerObj), { retain: true });
+      } else {
+        mqttClient.publish(topic, '', { retain: true });
       }
     }
 
-    function initPeerAndMqtt() {
+    function updateDrawer(drawerObj) {
+      if (!drawerObj || drawerObj.peerId === myPeerId) return;
+      currentDrawer = drawerObj;
+      isDrawer = false;
+      setDrawToolsEnabled(false);
+      roleDisplay.textContent = `🖌️ ${drawerObj.name} نقاشی می‌کند`;
+      wordDisplay.textContent = '';
+      requestDrawBtn.disabled = true;
+      requestDrawBtn.textContent = '🎨 نقاش فعال است';
+      // محاسبه زمان باقی‌مانده
+      const elapsed = Math.floor((Date.now() - drawerObj.startTime) / 1000);
+      const remaining = Math.max(DRAW_TIME - elapsed, 0);
+      stopDrawerTimer();
+      if (remaining > 0) {
+        drawerTimer.textContent = `⏱ ${formatTime(remaining)}`;
+        drawerTimerInterval = setInterval(() => {
+          const newRemaining = Math.max(Math.floor((DRAW_TIME * 1000 - (Date.now() - drawerObj.startTime)) / 1000), 0);
+          drawerTimer.textContent = `⏱ ${formatTime(newRemaining)}`;
+          if (newRemaining <= 0) {
+            clearInterval(drawerTimerInterval);
+            // انتظار می‌رود نقاش خودش inactive بفرستد
+          }
+        }, 1000);
+      }
+    }
+
+    function onMqttMessage(topic, message) {
+      const payload = message.toString();
+      if (topic === `doodle/${roomId}/drawer`) {
+        if (payload) {
+          try {
+            const drawer = JSON.parse(payload);
+            if (drawer.peerId !== myPeerId) {
+              updateDrawer(drawer);
+            } else {
+              // پیام خودم است، نادیده بگیر
+            }
+          } catch (e) {}
+        } else {
+          // پاک شدن نقاش
+          if (!isDrawer) {
+            currentDrawer = null;
+            roleDisplay.textContent = '🔍 حدس بزن';
+            requestDrawBtn.disabled = false;
+            requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
+            stopDrawerTimer();
+          }
+        }
+      } else if (topic === `doodle/${roomId}/presence`) {
+        // حضور دیگران: payload شامل { peerId, name }
+        if (payload) {
+          try {
+            const user = JSON.parse(payload);
+            if (user.peerId !== myPeerId && !peers.has(user.peerId)) {
+              connectToPeer(user.peerId);
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    function announcePresence() {
+      if (!mqttClient || !mqttClient.connected) return;
+      mqttClient.publish(`doodle/${roomId}/presence`, JSON.stringify({ peerId: myPeerId, name: myName }));
+    }
+
+    function initMqtt() {
+      mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+      mqttClient.on('connect', () => {
+        statusLabel.innerText = '✅ متصل به اتاق';
+        mqttClient.subscribe(`doodle/${roomId}/drawer`);
+        mqttClient.subscribe(`doodle/${roomId}/presence`);
+        mqttClient.on('message', onMqttMessage);
+        announcePresence();
+        // بررسی نقاش فعلی (retained)
+        // subscription خودش retained message را تحویل می‌دهد
+      });
+      mqttClient.on('close', () => statusLabel.innerText = '⚠️ قطع MQTT');
+    }
+
+    // ---------- رابط کاربری ----------
+    function updateUsersUI() {
+      usersContainer.innerHTML = `<span class="user-chip">👤 ${myName} (من)</span>`;
+      peers.forEach((conn, pid) => {
+        const name = conn.metadata?.name || pid.substring(0,6);
+        usersContainer.innerHTML += `<span class="user-chip">👤 ${name}</span>`;
+      });
+      if (currentDrawer) {
+        // برجسته کردن نقاش
+        const chips = usersContainer.querySelectorAll('.user-chip');
+        chips.forEach(chip => {
+          if (chip.textContent.includes(currentDrawer.name) || chip.textContent.includes(currentDrawer.peerId.substring(0,6))) {
+            chip.classList.add('drawer-chip');
+          }
+        });
+      }
+    }
+
+    // دکمه درخواست نقاشی
+    requestDrawBtn.addEventListener('click', () => {
+      if (isDrawer || currentDrawer) return;
+      // درخواست نقاش شدن
+      becomeDrawer();
+    });
+
+    // ورود
+    startBtn.addEventListener('click', () => {
+      const name = nameInput.value.trim();
+      if (!name) return alert('نام خود را وارد کنید');
+      myName = name;
+      roomId = roomInput.value.trim() || 'doodle_room';
+      loginBox.style.display = 'none';
+      app.style.display = 'flex';
+      initPeerAndStart();
+    });
+
+    function initPeerAndStart() {
       const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
@@ -435,39 +593,23 @@
       peer.on('open', (id) => {
         myPeerId = id;
         statusLabel.innerText = `🆔 ${id.substring(0,6)}`;
+        initMqtt();
         updateUsersUI();
-
-        mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
-        mqttClient.on('connect', () => {
-          statusLabel.innerText = '✅ متصل به سرور';
-          mqttClient.on('message', handlePairingMessage);
-          subscribeToPairing();
-        });
-        mqttClient.on('close', () => statusLabel.innerText = '⚠️ قطع MQTT');
       });
 
       peer.on('connection', (conn) => {
-        if (isPaired) return;
-        conn.metadata = { incoming: true };
-        setupPairConnection(conn);
+        if (peers.has(conn.peer)) return;
+        conn.metadata = { name: '' };
+        peers.set(conn.peer, conn);
+        setupConnection(conn, true);
+        updateUsersUI();
       });
 
-      peer.on('disconnected', () => statusLabel.innerText = '⚠️ Peer قطع شد');
+      peer.on('disconnected', () => statusLabel.innerText = '⚠️ قطع Peer');
       peer.on('error', (err) => statusLabel.innerText = `⚠️ خطا: ${err.message}`);
     }
 
-    // ---------- رویدادهای ورود ----------
-    startBtn.addEventListener('click', () => {
-      const name = nameInput.value.trim();
-      if (!name) return alert('نام خود را وارد کنید');
-      myName = name;
-      loginBox.style.display = 'none';
-      app.style.display = 'flex';
-      updateUsersUI();
-      initPeerAndMqtt();
-    });
-
-    // ---------- رویدادهای نقاشی ----------
+    // رویدادهای نقاشی
     canvas.addEventListener('mousedown', startDrawing);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', endDrawing);
