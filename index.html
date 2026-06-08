@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>نقاشی گروهی حرفه‌ای | MQTT</title>
+  <title>نقاشی گروهی پیشرفته | MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -104,7 +104,7 @@
 <body>
 
 <div id="loginBox" class="login">
-  <h2>🎨 نقاشی گروهی حرفه‌ای</h2>
+  <h2>🎨 نقاشی گروهی پیشرفته</h2>
   <input type="text" id="roomInput" placeholder="شناسه اتاق (پیش‌فرض doodle_room)" autocomplete="off">
   <input type="text" id="nameInput" placeholder="نام شما" autocomplete="off">
   <button id="startBtn">ورود به اتاق</button>
@@ -191,7 +191,7 @@
   };
   const ctx = dom.canvas.getContext('2d');
 
-  // متغیرها
+  // ========== متغیرها ==========
   const USER_ID = 'u' + Math.random().toString(36).substring(2, 11);
   let myName = '', roomId = 'doodle_room';
   let mqttClient = null;
@@ -210,11 +210,11 @@
   let drawerTimerInterval = null;
   let canvasWidth = 0, canvasHeight = 0;
 
-  // برای قابلیت برگردان (Undo)
+  // برای برگردان (Undo)
   let undoStack = [];
-  let isUndoRedoing = false;   // برای جلوگیری از ذخیره هنگام برگردان
+  let isUndoRedoing = false;
 
-  // همگام‌سازی نقاشی
+  // همگام‌سازی نقاشی با شماره ترتیبی
   let drawerEvents = [];
   let currentSeq = 0;
   let expectedSeq = 1;
@@ -243,7 +243,6 @@
     else addMessageToUI(text, 'other', senderName);
     chatHistory.unshift({ text, senderName: (sender === 'self' ? myName : senderName), isSystem: (sender === 'system'), timestamp: Date.now() });
     if (chatHistory.length > MAX_HISTORY) chatHistory.pop();
-    // در صورت تمایل می‌توان تاریخچه را broadcast کرد، برای سادگی فعلاً نه
   }
 
   function loadHistoryToUI(history) {
@@ -345,14 +344,13 @@
     const prev = undoStack.pop();
     ctx.putImageData(prev, 0, 0);
     isUndoRedoing = false;
-    // پس از برگردان، وضعیت جدید را با همه همگام نمی‌کنیم (فقط برای خود نقاش)
     if (isDrawer) {
-      // ارسال رویداد clear و سپس کل وضعیت؟ ساده‌ترین: ارسال یک تصویر کامل
+      // ارسال تصویر کامل برای همگام‌سازی (ساده‌ترین راه)
       sendCanvasSync();
     }
   }
 
-  // الگوریتم سطل رنگ (flood fill) – 4 جهته
+  // Flood fill (سطل رنگ)
   function floodFill(x, y, targetColor, fillColor) {
     if (targetColor === fillColor) return;
     const width = canvasWidth;
@@ -384,7 +382,7 @@
       stack.push({x: cx, y: cy-1});
     }
     ctx.putImageData(imageData, 0, 0);
-    saveCanvasState();  // ذخیره وضعیت جدید برای undo
+    saveCanvasState();
   }
 
   function fillAtMouse(e) {
@@ -398,7 +396,6 @@
     const targetColor = { r: imageData.data[0], g: imageData.data[1], b: imageData.data[2], a: imageData.data[3] };
     const fillColor = hexToRgba(dom.colorPicker.value);
     floodFill(x, y, targetColor, fillColor);
-    // ارسال رویداد clear و سپس کل وضعیت؟ ساده‌ترین: ارسال تصویر کامل
     sendCanvasSync();
   }
 
@@ -498,7 +495,6 @@
   function startDraw(e) {
     if (!isDrawer) return;
     e.preventDefault();
-    // ذخیره وضعیت قبل از شروع ضربه جدید
     saveCanvasState();
     drawing = true;
     const pos = getCanvasCoords(e);
@@ -603,23 +599,6 @@
     expectedSeq = data.lastSeq + 1;
   }
 
-  function clearCanvas(send = true) {
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    if (send && isDrawer && mqttClient) {
-      currentSeq++;
-      const clearEv = {
-        type: 'draw_event',
-        seq: currentSeq,
-        drawType: 'clear',
-        xn: 0, yn: 0,
-        userId: USER_ID
-      };
-      drawerEvents.push(clearEv);
-      mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(clearEv));
-    }
-    saveCanvasState();  // ذخیره وضعیت خالی برای undo
-  }
-
   function sendCanvasSync() {
     if (!isDrawer || !mqttClient) return;
     try {
@@ -639,7 +618,24 @@
     img.src = data.image;
   }
 
-  // ========== مدیریت نقاش و کلمه ==========
+  function clearCanvas(send = true) {
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    if (send && isDrawer && mqttClient) {
+      currentSeq++;
+      const clearEv = {
+        type: 'draw_event',
+        seq: currentSeq,
+        drawType: 'clear',
+        xn: 0, yn: 0,
+        userId: USER_ID
+      };
+      drawerEvents.push(clearEv);
+      mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(clearEv));
+    }
+    saveCanvasState();
+  }
+
+  // ========== مدیریت نقاش ==========
   function updateWordDisplay() {
     if (isDrawer && currentDrawer && currentDrawer.word) {
       dom.wordDisplay.textContent = `🎨 کلمه تو: ${currentDrawer.word}`;
@@ -709,7 +705,7 @@
     updateWordDisplay();
     startDrawerTimer(now);
     mqttClient.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
-    saveCanvasState(); // وضعیت اولیه
+    saveCanvasState();
   }
 
   function resignDrawer() {
@@ -767,12 +763,11 @@
         remainingSeconds: remaining
       }));
       addScore(USER_ID, remaining);
-      // نقاش امتیازش را از طریق پیام دریافت می‌کند (تا دوباره‌کاری نشود)
       addMessage(`🎉 شما کلمه را درست حدس زدید! +${remaining} امتیاز`, 'system');
     }
   }
 
-  // ========== MQTT ==========
+  // ========== MQTT با تنظیمات پایدار ==========
   function onMqttMessage(topic, message) {
     const payload = message.toString();
     if (!payload) return;
@@ -783,9 +778,8 @@
         if (data.type === 'chat') {
           if (data.userId !== USER_ID) addMessage(data.text, 'other', data.name);
         } else if (data.type === 'correct_guess') {
-          // امتیاز هر دو نفر
+          // امتیازدهی به هر دو نفر
           if (data.guesserId !== USER_ID) addScore(data.guesserId, data.remainingSeconds);
-          // نقاش همیشه امتیاز بگیرد (حتی اگر خودش باشد)
           addScore(data.drawerId, data.remainingSeconds);
           addMessage(`🎉 ${data.guesserName} کلمه را درست حدس زد! +${data.remainingSeconds} امتیاز`, 'system');
           if (currentDrawer && currentDrawer.userId === data.drawerId) {
