@@ -106,7 +106,7 @@
 <body>
 
 <div id="loginBox" class="login">
-  <h2>🎨 نقاشی گروهی حرفه‌ای</h2>
+  <h2>🎨 نقاشی گروهی </h2>
   <input type="text" id="roomInput" placeholder="شناسه اتاق (پیش‌فرض doodle_room)" autocomplete="off">
   <input type="text" id="nameInput" placeholder="نام شما" autocomplete="off">
   <button id="startBtn">ورود به اتاق</button>
@@ -158,8 +158,8 @@
   ];
 
   const DRAW_TIME = 120;
-  const HEARTBEAT_INTERVAL = 3000;    // 3 ثانیه پینگ
-  const HEARTBEAT_TIMEOUT = 15000;    // 15 ثانیه بدون پینگ => قطع
+  const HEARTBEAT_INTERVAL = 5000;    // 3 ثانیه پینگ
+  const HEARTBEAT_TIMEOUT = 20000;    // 15 ثانیه بدون پینگ => قطع
   const THROTTLE_MS = 20;
   const MAX_HISTORY = 20;
   const USER_LIST_BROADCAST_INTERVAL = 3000;
