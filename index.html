@@ -148,28 +148,24 @@
     let currentDrawer = null;
     let isDrawer = false;
     let drawerTimerInterval = null;
-    const DRAW_TIME = 120; // ۲ دقیقه
+    const DRAW_TIME = 120;
 
     let currentWord = '';
     let myScore = 0;
     let drawing = false;
     let lastX, lastY;
 
-    // ---------- اصلاح ابعاد بوم ----------
+    // تنظیم ابعاد بوم (با جلوگیری از صفر شدن)
     function resizeCanvas() {
       const rect = canvas.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return; // از تنظیم صفر جلوگیری کن
+      if (rect.width === 0 || rect.height === 0) return;
       canvas.width = rect.width;
       canvas.height = rect.height;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
     }
-    // فراخوانی اولیه ممکن است صفر باشد، اشکالی ندارد
-    resizeCanvas();
-    // بعد از هر تغییر اندازه پنجره
+    resizeCanvas(); // فراخوانی اولیه
     window.addEventListener('resize', resizeCanvas);
-    // همچنین وقتی صفحه کاملاً نمایش داده شد دوباره تنظیم کن
-    // (این کار در رویداد ورود انجام خواهد شد)
 
     function setDrawToolsEnabled(enabled) {
       toolbar.style.display = enabled ? 'flex' : 'none';
@@ -214,10 +210,7 @@
         clientX = e.clientX;
         clientY = e.clientY;
       }
-      return {
-        x: clientX - rect.left,
-        y: clientY - rect.top
-      };
+      return { x: clientX - rect.left, y: clientY - rect.top };
     }
 
     function broadcastDrawing(type, x, y) {
@@ -229,7 +222,12 @@
     }
 
     function handleRemoteDraw(data) {
-      if (isDrawer) return;
+      // ⚠️ رفع بحرانی: اگر بوم هنوز تنظیم نشده باشد، اکنون تنظیم کن
+      if (canvas.width === 0 || canvas.height === 0) {
+        resizeCanvas();
+        if (canvas.width === 0 || canvas.height === 0) return; // اگر باز هم صفر بود، بی‌خیال شو
+      }
+      if (isDrawer) return; // نقاش خودش نقاشی را نمی‌بیند
       ctx.strokeStyle = data.color;
       ctx.lineWidth = data.size;
       if (data.drawType === 'start') {
@@ -362,7 +360,6 @@
     });
     chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendBtn.click(); });
 
-    // شبکه همتا
     function connectToPeer(peerId) {
       if (peerId === myPeerId || peers.has(peerId)) return;
       const conn = peer.connect(peerId, { reliable: true });
@@ -438,7 +435,6 @@
       });
     }
 
-    // MQTT
     function publishDrawerState(drawerObj) {
       if (!mqttClient || !mqttClient.connected) return;
       const topic = `doodle/${roomId}/drawer`;
@@ -543,8 +539,7 @@
       roomId = roomInput.value.trim() || 'doodle_room';
       loginBox.style.display = 'none';
       app.style.display = 'flex';
-      // ⚠️ رفع بحرانی: حالا که app نمایش داده شد، ابعاد بوم را دوباره تنظیم کن
-      resizeCanvas();
+      resizeCanvas(); // تنظیم بوم بعد از نمایش
       initPeerAndStart();
     });
 
@@ -576,7 +571,6 @@
       peer.on('error', (err) => statusLabel.innerText = `⚠️ خطا: ${err.message}`);
     }
 
-    // رویدادهای نقاشی
     canvas.addEventListener('mousedown', startDrawing);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', endDrawing);
