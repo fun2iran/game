@@ -6,7 +6,7 @@
   <title>نقاشی گروهی همگام | MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
-    /* همان استایل‌های قبلی */
+    /* همان استایل‌های قبلی - حذف نشده */
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     body {
       background:#1e1e2f; color:#fff; font-family:'Segoe UI',Tahoma,sans-serif;
@@ -144,7 +144,7 @@
 
 <script>
 (function(){
-  // ========== همان کلمات 100 تایی ==========
+  // 100 کلمه ساده و قابل کشیدن
   const WORDS = [
     'سیب', 'موز', 'پرتقال', 'انگور', 'هندوانه', 'گلابی', 'هلو', 'گیلاس', 'توت فرنگی', 'آناناس',
     'ماشین', 'اتوبوس', 'قطار', 'هواپیما', 'دوچرخه', 'موتورسیکلت', 'کشتی', 'بالگرد', 'تراکتور', 'آمبولانس',
@@ -394,10 +394,8 @@
       clientX = e.clientX;
       clientY = e.clientY;
     }
-    // مختصات نسبت به گوشه canvas بر حسب CSS پیکسل
     const xCSS = clientX - rect.left;
     const yCSS = clientY - rect.top;
-    // نسبت اندازه واقعی به اندازه CSS
     const scaleX = dom.canvas.width / rect.width;
     const scaleY = dom.canvas.height / rect.height;
     return { x: xCSS * scaleX, y: yCSS * scaleY };
@@ -482,9 +480,13 @@
     }
   }
 
-  // مدیریت رویدادهای دریافتی با شماره
+  // ========== اصلاح اساسی: جلوگیری از دوباره‌کاری نقاش ==========
   function onDrawEvent(data) {
+    // فقط رویدادهای نقاش فعلی را پردازش کن
     if (data.userId !== currentDrawer?.userId) return;
+    // نادیده گرفتن رویدادهای ارسالی از خود نقاش (برای جلوگیری از دوباره کشیده شدن خطوط)
+    if (data.userId === USER_ID) return;
+    
     if (data.seq === expectedSeq) {
       executeDrawEvent(data);
       expectedSeq++;
