@@ -143,7 +143,7 @@
 
 <script>
 (function(){
-  // ========== ۱۰۰ کلمه ساده و قابل کشیدن ==========
+  // 100 کلمه
   const WORDS = [
     'سیب', 'موز', 'پرتقال', 'انگور', 'هندوانه', 'گلابی', 'هلو', 'گیلاس', 'توت فرنگی', 'آناناس',
     'ماشین', 'اتوبوس', 'قطار', 'هواپیما', 'دوچرخه', 'موتورسیکلت', 'کشتی', 'بالگرد', 'تراکتور', 'آمبولانس',
@@ -160,10 +160,12 @@
   const DRAW_TIME = 120;
   const HEARTBEAT_INTERVAL = 2000;
   const HEARTBEAT_TIMEOUT = 10000;
-  const THROTTLE_MS = 30;
+  const THROTTLE_MS = 20; // کاهش به 20ms برای نقاشی روان‌تر
   const MAX_HISTORY = 20;
+  const USER_LIST_BROADCAST_INTERVAL = 3000; // هر ۳ ثانیه پخش لیست
+  const CANVAS_SYNC_INTERVAL = 3000; // هر ۳ ثانیه همگام‌سازی کامل بوم
 
-  // ========== DOM elements ==========
+  // DOM elements
   const dom = {
     loginBox: document.getElementById('loginBox'),
     roomInput: document.getElementById('roomInput'),
@@ -188,7 +190,7 @@
   };
   const ctx = dom.canvas.getContext('2d');
 
-  // ========== متغیرهای اصلی ==========
+  // متغیرهای اصلی
   const USER_ID = 'u' + Math.random().toString(36).substring(2, 11);
   let myName = '', roomId = 'doodle_room';
   let mqttClient = null;
@@ -210,6 +212,7 @@
   let heartbeatInterval = null;
   let drawerAnimFrame = null;
   let userListBroadcastInterval = null;
+  let canvasSyncInterval = null;
 
   // ========== توابع کمکی ==========
   function formatTime(sec) {
@@ -251,7 +254,7 @@
     dom.messageContainer.scrollTop = dom.messageContainer.scrollHeight;
   }
 
-  // به‌روزرسانی لیست کاربران در UI (با مرتب‌سازی بر اساس امتیاز)
+  // به‌روزرسانی لیست کاربران در UI (مرتب‌سازی بر اساس امتیاز)
   function updateUsersUI() {
     const list = [];
     list.push({ id: USER_ID, name: myName, score: users.get(USER_ID)?.score || 0, isSelf: true });
@@ -269,7 +272,6 @@
     dom.scoreDisplay.textContent = `🏆 ${users.get(USER_ID)?.score || 0}`;
   }
 
-  // افزودن امتیاز به یک کاربر
   function addScore(userId, points) {
     let u = users.get(userId);
     if (u) {
@@ -280,8 +282,8 @@
     }
     updateUsersUI();
     if (isHost) {
-      // میزبان لیست کاربران را پخش می‌کند
-      setTimeout(() => broadcastUserList(), 500);
+      // پخش فوری لیست کاربران پس از تغییر امتیاز
+      broadcastUserList();
     }
   }
 
@@ -289,7 +291,6 @@
   function determineHostId() {
     let allUserIds = [USER_ID];
     for (let uid of users.keys()) allUserIds.push(uid);
-    // کوچک‌ترین userId (مقایسه رشته‌ای)
     allUserIds.sort();
     return allUserIds[0];
   }
@@ -305,10 +306,9 @@
       broadcastQueue();
       broadcastUserList();
       if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
-      userListBroadcastInterval = setInterval(() => broadcastUserList(), 5000);
+      userListBroadcastInterval = setInterval(() => broadcastUserList(), USER_LIST_BROADCAST_INTERVAL);
       if (!currentDrawer && drawQueue.length > 0) assignNextDrawer();
     } else if (newHostId !== USER_ID && isHost) {
-      // من دیگر میزبان نیستم
       isHost = false;
       hostId = newHostId;
       if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
@@ -323,7 +323,6 @@
   function broadcastUserList() {
     if (!isHost || !mqttClient) return;
     const userList = [];
-    // خود میزبان
     userList.push({ userId: USER_ID, name: myName, score: users.get(USER_ID)?.score || 0, joinTime });
     for (let [uid, u] of users.entries()) {
       if (uid !== USER_ID) {
@@ -339,10 +338,12 @@
     const newUsers = new Map();
     for (let u of data.users) {
       if (u.userId === USER_ID) {
-        // خودمان: فقط امتیاز را به‌روز کن (نام و joinTime خودمان را نگه دار)
+        // خودمان: امتیاز را به‌روز کن
         const oldScore = users.get(USER_ID)?.score || 0;
         const newScore = u.score;
         if (newScore !== oldScore) {
+          users.set(USER_ID, { name: myName, joinTime, score: newScore, lastHeartbeat: Date.now() });
+        } else if (!users.has(USER_ID)) {
           users.set(USER_ID, { name: myName, joinTime, score: newScore, lastHeartbeat: Date.now() });
         }
       } else {
@@ -367,14 +368,14 @@
       }
     }
     users = newUsers;
-    // خودمان را دوباره اضافه می‌کنیم (امتیاز قبلی حفظ شود)
+    // خودمان را دوباره اضافه می‌کنیم
     const myScore = users.get(USER_ID)?.score || 0;
     users.set(USER_ID, { name: myName, joinTime, score: myScore, lastHeartbeat: Date.now() });
     updateUsersUI();
-    updateHost(); // بررسی مجدد میزبان (در صورت تغییر)
+    updateHost(); // بررسی مجدد میزبان
   }
 
-  // ========== بوم و نقاشی ==========
+  // ========== بوم و نقاشی با همگام‌سازی دوره‌ای ==========
   function resizeCanvas() {
     const rect = dom.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
@@ -475,12 +476,28 @@
   }
   dom.clearBtn.onclick = () => clearCanvas();
 
+  // همگام‌سازی کامل بوم (ارسال تصویر)
   function sendCanvasSync() {
     if (!isDrawer || !mqttClient) return;
     try {
       const dataUrl = dom.canvas.toDataURL('image/png');
       mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'canvas_sync', image: dataUrl, userId: USER_ID }));
     } catch(e) {}
+  }
+
+  // شروع ارسال دوره‌ای بوم توسط نقاش
+  function startCanvasSyncInterval() {
+    if (canvasSyncInterval) clearInterval(canvasSyncInterval);
+    canvasSyncInterval = setInterval(() => {
+      if (isDrawer && mqttClient?.connected) {
+        sendCanvasSync();
+      }
+    }, CANVAS_SYNC_INTERVAL);
+  }
+
+  function stopCanvasSyncInterval() {
+    if (canvasSyncInterval) clearInterval(canvasSyncInterval);
+    canvasSyncInterval = null;
   }
 
   // ========== مدیریت نقاش و تایمر ==========
@@ -544,7 +561,10 @@
     dom.requestDrawBtn.textContent = '🎨 در حال نقاشی...';
     startDrawerTimer(now);
     mqttClient.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
+    // ارسال بوم اولیه
     setTimeout(() => sendCanvasSync(), 100);
+    // شروع همگام‌سازی دوره‌ای بوم
+    startCanvasSyncInterval();
   }
 
   function resignDrawer() {
@@ -558,6 +578,7 @@
     stopDrawerTimer();
     dom.requestDrawBtn.disabled = false;
     dom.requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
+    stopCanvasSyncInterval();
     mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
     mqttClient.publish(`doodle/${roomId}/drawer_finished`, JSON.stringify({ userId: USER_ID, reason: 'resign' }));
   }
@@ -673,7 +694,7 @@
     }, HEARTBEAT_INTERVAL);
   }
 
-  // ========== MQTT پیام‌ها ==========
+  // ========== MQTT ==========
   function onMqttMessage(topic, message) {
     const payload = message.toString();
     if (!payload) return;
@@ -799,7 +820,7 @@
             users.delete(userId);
             addMessage(`${name} قطع شد.`, 'system');
             updateUsersUI();
-            updateHost(); // میزبان مجدد محاسبه می‌شود
+            updateHost();
             if (isHost) {
               const idx = drawQueue.indexOf(userId);
               if (idx !== -1) drawQueue.splice(idx, 1);
@@ -870,6 +891,7 @@
     window.addEventListener('beforeunload', () => {
       if (heartbeatInterval) clearInterval(heartbeatInterval);
       if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
+      if (canvasSyncInterval) clearInterval(canvasSyncInterval);
       if (mqttClient?.connected) mqttClient.end();
     });
   }
