@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>نقاشی گروهی حرفه‌ای | MQTT</title>
+  <title>نقاشی گروهی دقیق | MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -106,7 +106,7 @@
 <body>
 
 <div id="loginBox" class="login">
-  <h2>🎨 نقاشی گروهی </h2>
+  <h2>🎨 نقاشی گروهی دقیق</h2>
   <input type="text" id="roomInput" placeholder="شناسه اتاق (پیش‌فرض doodle_room)" autocomplete="off">
   <input type="text" id="nameInput" placeholder="نام شما" autocomplete="off">
   <button id="startBtn">ورود به اتاق</button>
@@ -158,11 +158,12 @@
   ];
 
   const DRAW_TIME = 120;
-  const HEARTBEAT_INTERVAL = 5000;    // 3 ثانیه پینگ
-  const HEARTBEAT_TIMEOUT = 20000;    // 15 ثانیه بدون پینگ => قطع
-  const THROTTLE_MS = 20;
+  const HEARTBEAT_INTERVAL = 3000;
+  const HEARTBEAT_TIMEOUT = 15000;
+  const THROTTLE_MS = 16;            // حدود 60 فریم بر ثانیه برای نقاشی روان
   const MAX_HISTORY = 20;
   const USER_LIST_BROADCAST_INTERVAL = 3000;
+  const AUTO_SYNC_INTERVAL = 5000;   // هر 5 ثانیه یک بار همگام‌سازی کامل
 
   // DOM elements
   const dom = {
@@ -211,14 +212,16 @@
   let heartbeatInterval = null;
   let drawerAnimFrame = null;
   let userListBroadcastInterval = null;
+  let autoSyncInterval = null;
   let canvasWidth = 0, canvasHeight = 0;
 
   // همگام‌سازی رویدادهای نقاشی
-  let drawerEvents = [];
+  let drawerEvents = [];          // آرایه رویدادهای نقاشی (فقط نقاش)
   let currentSeq = 0;
   let expectedSeq = 1;
   let lastReceivedSeq = 0;
   let syncing = false;
+  const MAX_EVENTS = 5000;       // حداکثر رویدادهای ذخیره شده
 
   // ========== توابع کمکی ==========
   function formatTime(sec) {
@@ -393,7 +396,6 @@
     dom.toolbar.style.display = enabled ? 'flex' : 'none';
   }
 
-  // تبدیل مختصات ماوس به مختصات بوم (مطلق)
   function getCanvasCoords(e) {
     const rect = dom.canvas.getBoundingClientRect();
     let clientX, clientY;
@@ -411,7 +413,6 @@
     return { x: xCSS * scaleX, y: yCSS * scaleY };
   }
 
-  // ارسال رویداد نقاشی با مختصات نسبی (0..1)
   function sendDraw(type, x, y) {
     if (!mqttClient?.connected || !isDrawer) return;
     currentSeq++;
@@ -427,6 +428,7 @@
       userId: USER_ID
     };
     drawerEvents.push(ev);
+    if (drawerEvents.length > MAX_EVENTS) drawerEvents.shift();
     mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(ev));
   }
 
@@ -475,7 +477,6 @@
     flushDraw();
   }
 
-  // اجرای رویداد نقاشی با تبدیل مختصات نسبی به مطلق
   function executeDrawEvent(data) {
     const x = data.xn * canvasWidth;
     const y = data.yn * canvasHeight;
@@ -536,6 +537,7 @@
     syncing = false;
   }
 
+  // همگام‌سازی کامل برای یک کاربر خاص (برای کاربر جدید)
   function sendFullSyncToUser(targetUserId) {
     if (!isDrawer || !mqttClient) return;
     if (drawerEvents.length === 0) return;
@@ -546,8 +548,21 @@
     }));
   }
 
+  // همگام‌سازی کامل برای همه کاربران (پخش دوره‌ای)
+  function broadcastFullSync() {
+    if (!isDrawer || !mqttClient) return;
+    if (drawerEvents.length === 0) return;
+    mqttClient.publish(`doodle/${roomId}/full_sync`, JSON.stringify({
+      target: 'all',
+      events: drawerEvents,
+      lastSeq: currentSeq
+    }));
+  }
+
   function onFullSync(data) {
-    if (data.target !== USER_ID) return;
+    if (data.target !== USER_ID && data.target !== 'all') return;
+    // اگر target all باشد یا مختص خودش، بازپخش کند
+    if (data.target === 'all' && isDrawer) return; // نقاش نیازی به بازپخش ندارد
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     for (let ev of data.events) executeDrawEvent(ev);
     expectedSeq = data.lastSeq + 1;
@@ -566,18 +581,11 @@
         userId: USER_ID
       };
       drawerEvents.push(clearEv);
+      if (drawerEvents.length > MAX_EVENTS) drawerEvents.shift();
       mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(clearEv));
     }
   }
   dom.clearBtn.onclick = () => clearCanvas();
-
-  function sendCanvasSync() {
-    if (!isDrawer || !mqttClient) return;
-    try {
-      const dataUrl = dom.canvas.toDataURL('image/png');
-      mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'canvas_sync', image: dataUrl, userId: USER_ID }));
-    } catch(e) {}
-  }
 
   // ========== مدیریت نقاش و تایمر ==========
   function pickNewWord() {
@@ -643,7 +651,9 @@
     dom.requestDrawBtn.textContent = '🎨 در حال نقاشی...';
     startDrawerTimer(now);
     mqttClient.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
-    setTimeout(() => sendCanvasSync(), 100);
+    // شروع همگام‌سازی دوره‌ای (هر 5 ثانیه یک بار broadcast full sync)
+    if (autoSyncInterval) clearInterval(autoSyncInterval);
+    autoSyncInterval = setInterval(() => broadcastFullSync(), AUTO_SYNC_INTERVAL);
   }
 
   function resignDrawer() {
@@ -657,6 +667,8 @@
     stopDrawerTimer();
     dom.requestDrawBtn.disabled = false;
     dom.requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
+    if (autoSyncInterval) clearInterval(autoSyncInterval);
+    autoSyncInterval = null;
     mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
     mqttClient.publish(`doodle/${roomId}/drawer_finished`, JSON.stringify({ userId: USER_ID, reason: 'resign' }));
   }
@@ -676,6 +688,7 @@
     lastReceivedSeq = 0;
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     updateUsersUI();
+    // درخواست همگام‌سازی کامل از نقاش
     setTimeout(() => {
       if (mqttClient?.connected && currentDrawer && currentDrawer.userId === drawer.userId) {
         mqttClient.publish(`doodle/${roomId}/full_sync_request`, JSON.stringify({ target: USER_ID, drawerId: drawer.userId }));
@@ -700,7 +713,6 @@
     const msg = { type: 'chat', text, userId: USER_ID, name: myName, timestamp: Date.now() };
     mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify(msg));
     addMessage(text, 'self');
-    // بررسی حدس درست
     if (!isDrawer && currentDrawer && currentDrawer.word && text.trim().toLowerCase() === currentDrawer.word.toLowerCase()) {
       const remaining = Math.max(0, DRAW_TIME - Math.floor((Date.now() - currentDrawer.startTime) / 1000));
       mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify({
@@ -973,6 +985,7 @@
     window.addEventListener('beforeunload', () => {
       if (heartbeatInterval) clearInterval(heartbeatInterval);
       if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
+      if (autoSyncInterval) clearInterval(autoSyncInterval);
       if (mqttClient?.connected) mqttClient.end();
     });
   }
