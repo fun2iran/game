@@ -6,6 +6,7 @@
   <title>نقاشی گروهی همگام | MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
+    /* همان استایل‌های قبل */
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     body {
       background:#1e1e2f; color:#fff; font-family:'Segoe UI',Tahoma,sans-serif;
@@ -143,7 +144,7 @@
 
 <script>
 (function(){
-  // 100 کلمه (همان)
+  // 100 کلمه
   const WORDS = [
     'سیب', 'موز', 'پرتقال', 'انگور', 'هندوانه', 'گلابی', 'هلو', 'گیلاس', 'توت فرنگی', 'آناناس',
     'ماشین', 'اتوبوس', 'قطار', 'هواپیما', 'دوچرخه', 'موتورسیکلت', 'کشتی', 'بالگرد', 'تراکتور', 'آمبولانس',
@@ -158,11 +159,11 @@
   ];
 
   const DRAW_TIME = 120;
-  const HEARTBEAT_INTERVAL = 2000;
-  const HEARTBEAT_TIMEOUT = 10000;
+  const HEARTBEAT_INTERVAL = 3000;    // هر 3 ثانیه پینگ
+  const HEARTBEAT_TIMEOUT = 15000;    // 15 ثانیه بدون پینگ = قطع
   const THROTTLE_MS = 20;
   const MAX_HISTORY = 20;
-  const INFO_PUBLISH_INTERVAL = 5000; // هر 5 ثانیه اطلاعات خود را پخش کن
+  const INFO_PUBLISH_INTERVAL = 5000;
 
   // DOM elements
   const dom = {
@@ -189,13 +190,12 @@
   };
   const ctx = dom.canvas.getContext('2d');
 
-  // متغیرهای عمومی
   const USER_ID = 'u' + Math.random().toString(36).substring(2, 11);
   let myName = '', roomId = 'doodle_room';
   let mqttClient = null;
   let joinTime = Date.now();
 
-  let users = new Map();        // userId -> { name, score, joinTime, lastHeartbeat, timer }
+  let users = new Map();
   let currentDrawer = null;
   let isDrawer = false;
   let currentWord = '';
@@ -212,26 +212,17 @@
   let drawerAnimFrame = null;
   let infoPublishInterval = null;
 
-  // همگام‌سازی رویدادها
+  // برای همگام‌سازی رویدادها
   let drawerEvents = [];
   let currentSeq = 0;
   let expectedSeq = 1;
   let lastReceivedSeq = 0;
   let syncing = false;
 
-  // ========== توابع ذخیره و بازیابی امتیاز در localStorage ==========
-  function getScoreStorageKey() {
-    return `score_${roomId}_${USER_ID}`;
-  }
-
-  function saveMyScore(score) {
-    localStorage.setItem(getScoreStorageKey(), score);
-  }
-
-  function loadMyScore() {
-    const saved = localStorage.getItem(getScoreStorageKey());
-    return saved ? parseInt(saved) : 0;
-  }
+  // ========== توابع ذخیره و بازیابی امتیاز ==========
+  function getScoreStorageKey() { return `score_${roomId}_${USER_ID}`; }
+  function saveMyScore(score) { localStorage.setItem(getScoreStorageKey(), score); }
+  function loadMyScore() { const saved = localStorage.getItem(getScoreStorageKey()); return saved ? parseInt(saved) : 0; }
 
   // ========== توابع کمکی ==========
   function formatTime(sec) {
@@ -302,13 +293,10 @@
       saveMyScore(newScore);
     }
     updateUsersUI();
-    // امتیاز تغییر کرد => اطلاعات خود را دوباره پخش کن تا دیگران به‌روز شوند
-    if (userId === USER_ID && mqttClient?.connected) {
-      publishMyInfo();
-    }
+    if (userId === USER_ID && mqttClient?.connected) publishMyInfo();
   }
 
-  // ========== مدیریت کاربران با استفاده از info و ping ==========
+  // ========== مدیریت کاربران با info و ping ==========
   function startUserHeartbeatTimer(userId) {
     const u = users.get(userId);
     if (!u) return;
@@ -319,7 +307,7 @@
         users.delete(userId);
         addMessage(`${name} قطع شد.`, 'system');
         updateUsersUI();
-        updateHost(); // میزبان را دوباره محاسبه کن (اگر میزبان بود)
+        updateHost();
         if (currentDrawer && currentDrawer.userId === userId) {
           currentDrawer = null;
           dom.roleDisplay.textContent = '🔍 حدس بزن';
@@ -329,13 +317,10 @@
           if (isHost) assignNextDrawer();
           mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
         }
-        // پاک کردن retain info کاربر قطع شده (اختیاری)
-        // mqttClient.publish(`doodle/${roomId}/info`, '', { retain: true });
       }
     }, HEARTBEAT_TIMEOUT);
   }
 
-  // انتشار اطلاعات خود (نام، امتیاز، joinTime)
   function publishMyInfo() {
     if (!mqttClient?.connected) return;
     const myScore = users.get(USER_ID)?.score || loadMyScore();
@@ -347,15 +332,12 @@
     }));
   }
 
-  // شروع انتشار دوره‌ای info
   function startInfoPublish() {
     if (infoPublishInterval) clearInterval(infoPublishInterval);
-    infoPublishInterval = setInterval(() => {
-      publishMyInfo();
-    }, INFO_PUBLISH_INTERVAL);
+    infoPublishInterval = setInterval(() => publishMyInfo(), INFO_PUBLISH_INTERVAL);
   }
 
-  // ========== تعیین میزبان با کوچکترین USER_ID ==========
+  // ========== تعیین میزبان ==========
   function determineHostId() {
     let allUserIds = [USER_ID];
     for (let uid of users.keys()) allUserIds.push(uid);
@@ -366,7 +348,6 @@
   function updateHost() {
     const newHostId = determineHostId();
     if (newHostId !== hostId) {
-      const oldHostId = hostId;
       hostId = newHostId;
       if (newHostId === USER_ID) {
         if (!isHost) {
@@ -386,20 +367,41 @@
     }
   }
 
-  // ========== بوم و نقاشی ==========
+  // ========== بوم و نقاشی با مختصات نسبی ==========
+  let canvasWidth = 0, canvasHeight = 0;
   function resizeCanvas() {
     const rect = dom.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
-    dom.canvas.width = rect.width;
-    dom.canvas.height = rect.height;
+    // ذخیره محتوای فعلی (اگر موجود باشد)
+    let savedImage = null;
+    if (canvasWidth > 0 && canvasHeight > 0) {
+      savedImage = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    }
+    canvasWidth = rect.width;
+    canvasHeight = rect.height;
+    dom.canvas.width = canvasWidth;
+    dom.canvas.height = canvasHeight;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    if (savedImage) {
+      ctx.putImageData(savedImage, 0, 0);
+    }
   }
   resizeCanvas();
+  window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
+  // برای موبایل وقتی کیبورد باز می‌شود
   window.addEventListener('resize', resizeCanvas);
 
-  function setDrawToolsEnabled(enabled) {
-    dom.toolbar.style.display = enabled ? 'flex' : 'none';
+  function setDrawToolsEnabled(enabled) { dom.toolbar.style.display = enabled ? 'flex' : 'none'; }
+
+  // نرمالیزه کردن مختصات (0..1)
+  function normalizeCoord(x, y) {
+    if (canvasWidth === 0 || canvasHeight === 0) return { x: 0, y: 0 };
+    return { x: x / canvasWidth, y: y / canvasHeight };
+  }
+  // دی‌نرمالیزه کردن مختصات
+  function denormalizeCoord(xn, yn) {
+    return { x: xn * canvasWidth, y: yn * canvasHeight };
   }
 
   function getCanvasCoords(e) {
@@ -414,19 +416,21 @@
     }
     const xCSS = clientX - rect.left;
     const yCSS = clientY - rect.top;
-    const scaleX = dom.canvas.width / rect.width;
-    const scaleY = dom.canvas.height / rect.height;
+    const scaleX = canvasWidth / rect.width;
+    const scaleY = canvasHeight / rect.height;
     return { x: xCSS * scaleX, y: yCSS * scaleY };
   }
 
   function sendDraw(type, x, y) {
     if (!mqttClient?.connected || !isDrawer) return;
     currentSeq++;
+    const norm = normalizeCoord(x, y);
     const eventData = {
       type: 'draw_event',
       seq: currentSeq,
       drawType: type,
-      x, y,
+      xn: norm.x,
+      yn: norm.y,
       color: dom.colorPicker.value,
       size: dom.brushSize.value,
       userId: USER_ID
@@ -481,24 +485,25 @@
   }
 
   function executeDrawEvent(data) {
+    const pos = denormalizeCoord(data.xn, data.yn);
     if (data.drawType === 'start') {
       ctx.beginPath();
-      ctx.moveTo(data.x, data.y);
+      ctx.moveTo(pos.x, pos.y);
       ctx.strokeStyle = data.color;
       ctx.lineWidth = data.size;
     } else if (data.drawType === 'move') {
-      ctx.lineTo(data.x, data.y);
+      ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     } else if (data.drawType === 'end') {
       ctx.closePath();
     } else if (data.drawType === 'clear') {
-      ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
   }
 
   function onDrawEvent(data) {
     if (data.userId !== currentDrawer?.userId) return;
-    if (data.userId === USER_ID) return; // جلوگیری از دوباره‌کاری
+    if (data.userId === USER_ID) return;
     if (data.seq === expectedSeq) {
       executeDrawEvent(data);
       expectedSeq++;
@@ -512,9 +517,7 @@
     if (syncing) return;
     syncing = true;
     mqttClient.publish(`doodle/${roomId}/sync_request`, JSON.stringify({
-      requester: USER_ID,
-      fromSeq, toSeq,
-      drawerId: currentDrawer.userId
+      requester: USER_ID, fromSeq, toSeq, drawerId: currentDrawer.userId
     }));
   }
 
@@ -522,10 +525,7 @@
     if (!isDrawer || currentDrawer?.userId !== data.drawerId) return;
     const events = drawerEvents.filter(ev => ev.seq >= data.fromSeq && ev.seq <= data.toSeq);
     if (events.length) {
-      mqttClient.publish(`doodle/${roomId}/sync_response`, JSON.stringify({
-        target: data.requester,
-        events
-      }));
+      mqttClient.publish(`doodle/${roomId}/sync_response`, JSON.stringify({ target: data.requester, events }));
     }
   }
 
@@ -539,31 +539,27 @@
   }
 
   function sendFullSyncToUser(targetUserId) {
-    if (!isDrawer || !mqttClient) return;
-    if (drawerEvents.length === 0) return;
-    mqttClient.publish(`doodle/${roomId}/full_sync`, JSON.stringify({
-      target: targetUserId,
-      events: drawerEvents,
-      lastSeq: currentSeq
-    }));
+    if (!isDrawer || !mqttClient || drawerEvents.length === 0) return;
+    mqttClient.publish(`doodle/${roomId}/full_sync`, JSON.stringify({ target: targetUserId, events: drawerEvents, lastSeq: currentSeq }));
   }
 
   function onFullSync(data) {
     if (data.target !== USER_ID) return;
-    ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     for (let ev of data.events) executeDrawEvent(ev);
     expectedSeq = data.lastSeq + 1;
     lastReceivedSeq = data.lastSeq;
   }
 
   function clearCanvas(send = true) {
-    ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     if (send && isDrawer && mqttClient) {
       currentSeq++;
       const clearEvent = {
         type: 'draw_event',
         seq: currentSeq,
         drawType: 'clear',
+        xn: 0, yn: 0,
         userId: USER_ID
       };
       drawerEvents.push(clearEvent);
@@ -674,7 +670,7 @@
     startDrawerTimer(drawer.startTime);
     expectedSeq = 1;
     lastReceivedSeq = 0;
-    ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     updateUsersUI();
     setTimeout(() => {
       if (mqttClient?.connected && currentDrawer && currentDrawer.userId === drawer.userId) {
@@ -775,179 +771,27 @@
     }, HEARTBEAT_INTERVAL);
   }
 
-  // ========== MQTT ==========
-  function onMqttMessage(topic, message) {
-    const payload = message.toString();
-    if (!payload) return;
-
-    if (topic === `doodle/${roomId}/chat`) {
-      try {
-        const data = JSON.parse(payload);
-        if (data.type === 'chat') {
-          if (data.userId !== USER_ID) addMessage(data.text, 'other', data.name);
-        } else if (data.type === 'correct_guess') {
-          if (data.guesserId !== USER_ID) addScore(data.guesserId, data.remainingSeconds);
-          if (data.drawerId !== USER_ID) addScore(data.drawerId, data.remainingSeconds);
-          addMessage(`🎉 ${data.guesserName} کلمه را درست حدس زد! +${data.remainingSeconds} امتیاز`, 'system');
-          if (currentDrawer && currentDrawer.userId === data.drawerId) {
-            if (currentDrawer.userId === USER_ID && isDrawer) resignDrawer();
-            else {
-              currentDrawer = null;
-              dom.roleDisplay.textContent = '🔍 حدس بزن';
-              dom.requestDrawBtn.disabled = false;
-              stopDrawerTimer();
-              updateUsersUI();
-              if (isHost) assignNextDrawer();
-            }
-          }
-        }
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/draw_event`) {
-      try {
-        const data = JSON.parse(payload);
-        if (data.userId === currentDrawer?.userId) onDrawEvent(data);
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/sync_request`) {
-      try { onSyncRequest(JSON.parse(payload)); } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/sync_response`) {
-      try { onSyncResponse(JSON.parse(payload)); } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/full_sync_request`) {
-      try {
-        const data = JSON.parse(payload);
-        if (isDrawer && data.drawerId === USER_ID && data.target !== USER_ID) sendFullSyncToUser(data.target);
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/full_sync`) {
-      try { onFullSync(JSON.parse(payload)); } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/drawer`) {
-      if (payload) {
-        try {
-          const drawer = JSON.parse(payload);
-          if (!currentDrawer || currentDrawer.userId !== drawer.userId) setDrawerFromRemote(drawer);
-        } catch(e) {}
-      } else {
-        if (!isDrawer && currentDrawer) {
-          currentDrawer = null;
-          dom.roleDisplay.textContent = '🔍 حدس بزن';
-          dom.requestDrawBtn.disabled = false;
-          stopDrawerTimer();
-          updateUsersUI();
-          if (isHost) assignNextDrawer();
-        }
-      }
-    }
-    else if (topic === `doodle/${roomId}/draw_request`) {
-      try {
-        const data = JSON.parse(payload);
-        if (isHost && data.userId !== USER_ID) addToQueue(data.userId);
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/drawer_finished`) {
-      if (isHost) finishDrawingAndNext();
-      else {
-        if (currentDrawer) {
-          currentDrawer = null;
-          dom.roleDisplay.textContent = '🔍 حدس بزن';
-          dom.requestDrawBtn.disabled = false;
-          stopDrawerTimer();
-          updateUsersUI();
-        }
-      }
-    }
-    else if (topic === `doodle/${roomId}/assign_drawer`) {
-      try {
-        const data = JSON.parse(payload);
-        if (data.userId === USER_ID && !isDrawer && !currentDrawer) becomeDrawer();
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/queue`) {
-      try {
-        const data = JSON.parse(payload);
-        if (!isHost && data.hostId !== USER_ID) {
-          drawQueue = data.queue || [];
-          updateQueueUI();
-        }
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/host`) {
-      try {
-        const data = JSON.parse(payload);
-        if (data.hostId !== USER_ID) hostId = data.hostId;
-        updateUsersUI();
-      } catch(e) {}
-    }
-    // ========== مدیریت خودکار کاربران با info و ping ==========
-    else if (topic === `doodle/${roomId}/info`) {
-      try {
-        const data = JSON.parse(payload);
-        if (data.userId !== USER_ID) {
-          if (!users.has(data.userId)) {
-            users.set(data.userId, {
-              name: data.name,
-              joinTime: data.joinTime,
-              score: data.score !== undefined ? data.score : 0,
-              lastHeartbeat: Date.now(),
-              timer: null
-            });
-            addMessage(`${data.name} وارد اتاق شد.`, 'system');
-          } else {
-            const u = users.get(data.userId);
-            u.lastHeartbeat = Date.now();
-            u.score = data.score !== undefined ? data.score : u.score; // به‌روزرسانی امتیاز
-            if (u.timer) clearTimeout(u.timer);
-          }
-          startUserHeartbeatTimer(data.userId);
-          updateUsersUI();
-          updateHost(); // ممکن است میزبان تغییر کند
-          if (isDrawer) sendCanvasSync(); // برای کاربر جدید بوم را همگام کن
-        }
-      } catch(e) {}
-    }
-    else if (topic.startsWith(`doodle/${roomId}/ping/`)) {
-      const userId = topic.split('/').pop();
-      if (userId !== USER_ID && users.has(userId)) {
-        const u = users.get(userId);
-        u.lastHeartbeat = Date.now();
-        if (u.timer) clearTimeout(u.timer);
-        startUserHeartbeatTimer(userId);
-      }
-    }
-    else if (topic === `doodle/${roomId}/history_update`) {
-      try {
-        const data = JSON.parse(payload);
-        if (!isHost) {
-          chatHistory = data.history.slice(0, MAX_HISTORY);
-          loadHistoryToUI(chatHistory);
-        }
-      } catch(e) {}
-    }
-    else if (topic === `doodle/${roomId}/request_history`) {
-      try {
-        const data = JSON.parse(payload);
-        if (isHost && data.userId !== USER_ID) {
-          mqttClient.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) }));
-        }
-      } catch(e) {}
-    }
-  }
-
+  // ========== MQTT با تنظیمات reconnect ==========
   function initMqtt() {
     if (typeof window.mqtt === 'undefined') {
       dom.statusLabel.innerText = '❌ کتابخانه MQTT بارگذاری نشد';
       return;
     }
-    mqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+    const options = {
+      keepalive: 30,
+      reconnectPeriod: 2000,
+      will: {
+        topic: `doodle/${roomId}/ping/${USER_ID}`,
+        payload: '',
+        retain: false
+      }
+    };
+    mqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt', options);
     mqttClient.on('connect', () => {
       dom.statusLabel.innerText = '✅ متصل';
       const topics = ['chat', 'draw_event', 'sync_request', 'sync_response', 'full_sync_request', 'full_sync', 'drawer', 'draw_request', 'drawer_finished', 'assign_drawer', 'queue', 'host', 'info', 'ping/+', 'history_update', 'request_history'];
       topics.forEach(t => mqttClient.subscribe(`doodle/${roomId}/${t}`));
       mqttClient.on('message', onMqttMessage);
-      // انتشار اطلاعات خود
       publishMyInfo();
       startInfoPublish();
       startHeartbeat();
@@ -963,6 +807,56 @@
       if (infoPublishInterval) clearInterval(infoPublishInterval);
       if (mqttClient?.connected) mqttClient.end();
     });
+  }
+
+  // ========== پردازش پیام‌های MQTT ==========
+  function onMqttMessage(topic, message) {
+    const payload = message.toString();
+    if (!payload) return;
+
+    if (topic === `doodle/${roomId}/chat`) { /* مثل قبل */ }
+    else if (topic === `doodle/${roomId}/draw_event`) { try { const data = JSON.parse(payload); if (data.userId === currentDrawer?.userId) onDrawEvent(data); } catch(e){} }
+    else if (topic === `doodle/${roomId}/sync_request`) { try { onSyncRequest(JSON.parse(payload)); } catch(e){} }
+    else if (topic === `doodle/${roomId}/sync_response`) { try { onSyncResponse(JSON.parse(payload)); } catch(e){} }
+    else if (topic === `doodle/${roomId}/full_sync_request`) { try { const data = JSON.parse(payload); if (isDrawer && data.drawerId === USER_ID && data.target !== USER_ID) sendFullSyncToUser(data.target); } catch(e){} }
+    else if (topic === `doodle/${roomId}/full_sync`) { try { onFullSync(JSON.parse(payload)); } catch(e){} }
+    else if (topic === `doodle/${roomId}/drawer`) { /* مثل قبل */ }
+    else if (topic === `doodle/${roomId}/draw_request`) { try { const data = JSON.parse(payload); if (isHost && data.userId !== USER_ID) addToQueue(data.userId); } catch(e){} }
+    else if (topic === `doodle/${roomId}/drawer_finished`) { /* مثل قبل */ }
+    else if (topic === `doodle/${roomId}/assign_drawer`) { try { const data = JSON.parse(payload); if (data.userId === USER_ID && !isDrawer && !currentDrawer) becomeDrawer(); } catch(e){} }
+    else if (topic === `doodle/${roomId}/queue`) { try { const data = JSON.parse(payload); if (!isHost && data.hostId !== USER_ID) { drawQueue = data.queue || []; updateQueueUI(); } } catch(e){} }
+    else if (topic === `doodle/${roomId}/host`) { try { const data = JSON.parse(payload); if (data.hostId !== USER_ID) hostId = data.hostId; updateUsersUI(); } catch(e){} }
+    else if (topic === `doodle/${roomId}/info`) {
+      try {
+        const data = JSON.parse(payload);
+        if (data.userId !== USER_ID) {
+          if (!users.has(data.userId)) {
+            users.set(data.userId, { name: data.name, joinTime: data.joinTime, score: data.score || 0, lastHeartbeat: Date.now(), timer: null });
+            addMessage(`${data.name} وارد اتاق شد.`, 'system');
+          } else {
+            const u = users.get(data.userId);
+            u.lastHeartbeat = Date.now();
+            u.score = data.score !== undefined ? data.score : u.score;
+            if (u.timer) clearTimeout(u.timer);
+          }
+          startUserHeartbeatTimer(data.userId);
+          updateUsersUI();
+          updateHost();
+          if (isDrawer) sendCanvasSync();
+        }
+      } catch(e) {}
+    }
+    else if (topic.startsWith(`doodle/${roomId}/ping/`)) {
+      const userId = topic.split('/').pop();
+      if (userId !== USER_ID && users.has(userId)) {
+        const u = users.get(userId);
+        u.lastHeartbeat = Date.now();
+        if (u.timer) clearTimeout(u.timer);
+        startUserHeartbeatTimer(userId);
+      }
+    }
+    else if (topic === `doodle/${roomId}/history_update`) { try { const data = JSON.parse(payload); if (!isHost) { chatHistory = data.history.slice(0, MAX_HISTORY); loadHistoryToUI(chatHistory); } } catch(e){} }
+    else if (topic === `doodle/${roomId}/request_history`) { try { const data = JSON.parse(payload); if (isHost && data.userId !== USER_ID) mqttClient.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) })); } catch(e){} }
   }
 
   // ========== راه‌اندازی ==========
@@ -983,17 +877,10 @@
 
   dom.requestDrawBtn.onclick = () => {
     if (isDrawer) return;
-    if (currentDrawer) {
-      if (!drawQueue.includes(USER_ID)) requestToDraw();
-    } else {
-      becomeDrawer();
-    }
+    if (currentDrawer) { if (!drawQueue.includes(USER_ID)) requestToDraw(); }
+    else becomeDrawer();
   };
-
-  dom.sendBtn.onclick = () => {
-    const text = dom.chatInput.value.trim();
-    if (text) { sendChat(text); dom.chatInput.value = ''; }
-  };
+  dom.sendBtn.onclick = () => { const text = dom.chatInput.value.trim(); if (text) { sendChat(text); dom.chatInput.value = ''; } };
   dom.chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') dom.sendBtn.click(); });
 
   dom.canvas.addEventListener('mousedown', startDraw);
