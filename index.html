@@ -224,7 +224,7 @@
     }
 
     function handleRemoteDraw(data) {
-      if (myTurn) return;
+      if (myTurn) return; // فقط حدس‌زننده نقاشی را می‌بیند
       ctx.strokeStyle = data.color;
       ctx.lineWidth = data.size;
       if (data.drawType === 'start') {
@@ -250,6 +250,7 @@
     }
 
     function swapRoles() {
+      // تابع جابه‌جایی واقعی نقش‌ها (فقط بعد از حدس درست)
       myTurn = !myTurn;
       clearCanvas(true);
       pickNewWord();
@@ -272,7 +273,7 @@
       }
       updateScoreDisplay();
       if (pairedConn) pairedConn.send({ type: 'swap' });
-      swapRoles();
+      swapRoles(); // بعد از حدس درست نوبت عوض می‌شود
     }
 
     function skipWord() {
@@ -333,10 +334,17 @@
         }
         addMessage(`🎉 به ${myName} و ${pairedName || 'یار جدید'} جفت شدید!`, 'system');
         updateUsersUI();
-        // شروع بازی: یکی تصادفی نقاش شود
+        
+        // تعیین تصادفی نوبت اولیه و ارسال به طرف مقابل
         myTurn = Math.random() < 0.5;
         conn.send({ type: 'initTurn', myTurn: !myTurn }); // برعکس برای حریف
-        swapRoles();
+
+        // ⚠️ اصلاح: به‌جای swapRoles() اینجا مستقیماً UI را تنظیم می‌کنیم
+        clearCanvas(true);
+        pickNewWord();
+        setDrawToolsEnabled(myTurn);
+        roleDisplay.textContent = myTurn ? '🖌️ نوبت تو برای نقاشی' : '🔍 حدس بزن!';
+        if (!myTurn) wordDisplay.textContent = '';
         updateScoreDisplay();
       });
 
@@ -348,8 +356,14 @@
             addMessage(`✨ ${data.name} به شما متصل شد.`, 'system');
             break;
           case 'initTurn':
+            // دریافت نوبت از طرف مقابل
             myTurn = data.myTurn;
-            swapRoles();
+            // ⚠️ اصلاح: مستقیماً UI را تنظیم می‌کنیم و دیگر swapRoles صدا زده نمی‌شود
+            clearCanvas(true);
+            pickNewWord();
+            setDrawToolsEnabled(myTurn);
+            roleDisplay.textContent = myTurn ? '🖌️ نوبت تو برای نقاشی' : '🔍 حدس بزن!';
+            if (!myTurn) wordDisplay.textContent = '';
             updateScoreDisplay();
             break;
           case 'draw':
@@ -365,7 +379,7 @@
             }
             break;
           case 'swap':
-            swapRoles();
+            swapRoles(); // اینجا جابه‌جایی واقعی رخ می‌دهد
             break;
           case 'skipWord':
             if (myTurn) { pickNewWord(); clearCanvas(true); }
