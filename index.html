@@ -391,6 +391,7 @@
           dom.roleDisplay.textContent = '🔍 حدس بزن';
           dom.requestDrawBtn.disabled = false;
           stopDrawerTimer();
+          updateWordDisplay();
           updateUsersUI();
           if (isHost) assignNextDrawer();
           mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
@@ -611,30 +612,21 @@
   }
   dom.clearBtn.onclick = () => clearCanvas();
 
-  // ========== مدیریت نقاش ==========
+  // ========== مدیریت نقاش و نمایش کلمه ==========
   function updateWordDisplay() {
-    if (isDrawer) {
-      dom.wordDisplay.textContent = `🎨 کلمه تو: ${currentDrawer?.word || ''}`;
-    } else if (currentDrawer) {
+    if (isDrawer && currentDrawer && currentDrawer.word) {
+      dom.wordDisplay.textContent = `🎨 کلمه تو: ${currentDrawer.word}`;
+    } else if (currentDrawer && currentDrawer.word) {
       const word = currentDrawer.word;
-      if (word) {
-        let hidden = word[0] + ' _'.repeat(word.length-1);
-        dom.wordDisplay.textContent = `🔍 کلمه: ${hidden} (${word.length} حرف)`;
-      } else {
-        dom.wordDisplay.textContent = '🔍 کلمه: ???';
-      }
+      let hidden = word[0] + ' _'.repeat(word.length - 1);
+      dom.wordDisplay.textContent = `🔍 کلمه: ${hidden} (${word.length} حرف)`;
     } else {
       dom.wordDisplay.textContent = '';
     }
   }
 
-  function pickNewWord() {
-    const word = WORDS[Math.floor(Math.random() * WORDS.length)];
-    if (isDrawer) {
-      currentDrawer.word = word;
-    }
-    updateWordDisplay();
-    return word;
+  function generateNewWord() {
+    return WORDS[Math.floor(Math.random() * WORDS.length)];
   }
 
   function startDrawerTimer(startTime) {
@@ -678,10 +670,11 @@
 
   function becomeDrawer() {
     if (isDrawer || currentDrawer) return;
-    isDrawer = true;
     const now = Date.now();
-    const word = pickNewWord();
+    const word = generateNewWord();
+    // ابتدا currentDrawer را می‌سازیم
     currentDrawer = { userId: USER_ID, name: myName, startTime: now, word: word };
+    isDrawer = true;
     drawerEvents = [];
     currentSeq = 0;
     expectedSeq = 1;
@@ -690,6 +683,7 @@
     dom.roleDisplay.textContent = '🖌️ تو نقاشی';
     dom.requestDrawBtn.disabled = true;
     dom.requestDrawBtn.textContent = '🎨 در حال نقاشی...';
+    updateWordDisplay();
     startDrawerTimer(now);
     mqttClient.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
   }
