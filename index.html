@@ -6,6 +6,7 @@
   <title>نقاشی گروهی همگام | MQTT</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
+    /* همان استایل‌های قبلی */
     * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     body {
       background:#1e1e2f; color:#fff; font-family:'Segoe UI',Tahoma,sans-serif;
@@ -143,7 +144,7 @@
 
 <script>
 (function(){
-  // 100 کلمه ساده
+  // ========== همان کلمات 100 تایی ==========
   const WORDS = [
     'سیب', 'موز', 'پرتقال', 'انگور', 'هندوانه', 'گلابی', 'هلو', 'گیلاس', 'توت فرنگی', 'آناناس',
     'ماشین', 'اتوبوس', 'قطار', 'هواپیما', 'دوچرخه', 'موتورسیکلت', 'کشتی', 'بالگرد', 'تراکتور', 'آمبولانس',
@@ -160,10 +161,9 @@
   const DRAW_TIME = 120;
   const HEARTBEAT_INTERVAL = 2000;
   const HEARTBEAT_TIMEOUT = 10000;
-  const THROTTLE_MS = 20;        // برای روانی نقاشی
+  const THROTTLE_MS = 20;
   const MAX_HISTORY = 20;
   const USER_LIST_BROADCAST_INTERVAL = 3000;
-  const CANVAS_SYNC_INTERVAL = 5000; // هر 5 ثانیه همگام‌سازی کامل
 
   // DOM elements
   const dom = {
@@ -190,13 +190,13 @@
   };
   const ctx = dom.canvas.getContext('2d');
 
-  // متغیرها
+  // متغیرهای عمومی
   const USER_ID = 'u' + Math.random().toString(36).substring(2, 11);
   let myName = '', roomId = 'doodle_room';
   let mqttClient = null;
   let joinTime = Date.now();
 
-  let users = new Map();
+  let users = new Map();        // userId -> { name, score, joinTime, lastHeartbeat, timer }
   let currentDrawer = null;
   let isDrawer = false;
   let currentWord = '';
@@ -212,7 +212,13 @@
   let heartbeatInterval = null;
   let drawerAnimFrame = null;
   let userListBroadcastInterval = null;
-  let canvasSyncInterval = null;
+
+  // همگام‌سازی رویدادها
+  let drawerEvents = [];
+  let currentSeq = 0;
+  let expectedSeq = 1;
+  let lastReceivedSeq = 0;
+  let syncing = false;
 
   // ========== توابع کمکی ==========
   function formatTime(sec) {
@@ -361,7 +367,7 @@
     updateHost();
   }
 
-  // ========== بوم و نقاشی ==========
+  // ========== بوم و نقاشی با مقیاس صحیح ==========
   function resizeCanvas() {
     const rect = dom.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
@@ -377,25 +383,41 @@
     dom.toolbar.style.display = enabled ? 'flex' : 'none';
   }
 
-  function getCoords(e) {
+  // ====== تصحیح مختصات ماوس نسبت به بوم ======
+  function getCanvasCoords(e) {
     const rect = dom.canvas.getBoundingClientRect();
-    let cx, cy;
+    let clientX, clientY;
     if (e.touches) {
-      cx = e.touches[0].clientX;
-      cy = e.touches[0].clientY;
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
     } else {
-      cx = e.clientX;
-      cy = e.clientY;
+      clientX = e.clientX;
+      clientY = e.clientY;
     }
-    return { x: cx - rect.left, y: cy - rect.top };
+    // مختصات نسبت به گوشه canvas بر حسب CSS پیکسل
+    const xCSS = clientX - rect.left;
+    const yCSS = clientY - rect.top;
+    // نسبت اندازه واقعی به اندازه CSS
+    const scaleX = dom.canvas.width / rect.width;
+    const scaleY = dom.canvas.height / rect.height;
+    return { x: xCSS * scaleX, y: yCSS * scaleY };
   }
 
+  // ارسال رویداد با شماره ترتیبی
   function sendDraw(type, x, y) {
-    if (!mqttClient?.connected) return;
-    mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({
-      type: 'draw', drawType: type, x, y,
-      color: dom.colorPicker.value, size: dom.brushSize.value, userId: USER_ID
-    }));
+    if (!mqttClient?.connected || !isDrawer) return;
+    currentSeq++;
+    const eventData = {
+      type: 'draw_event',
+      seq: currentSeq,
+      drawType: type,
+      x, y,
+      color: dom.colorPicker.value,
+      size: dom.brushSize.value,
+      userId: USER_ID
+    };
+    drawerEvents.push(eventData);
+    mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(eventData));
   }
 
   function flushDraw() {
@@ -416,15 +438,17 @@
     if (!isDrawer) return;
     e.preventDefault();
     drawing = true;
-    const pos = getCoords(e);
+    const pos = getCanvasCoords(e);
     lastX = pos.x; lastY = pos.y;
-    ctx.beginPath(); ctx.moveTo(lastX, lastY);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
     throttleDraw('start', lastX, lastY);
   }
+
   function onDraw(e) {
     if (!drawing || !isDrawer) return;
     e.preventDefault();
-    const pos = getCoords(e);
+    const pos = getCanvasCoords(e);
     ctx.lineTo(pos.x, pos.y);
     ctx.strokeStyle = dom.colorPicker.value;
     ctx.lineWidth = dom.brushSize.value;
@@ -432,6 +456,7 @@
     throttleDraw('move', pos.x, pos.y);
     lastX = pos.x; lastY = pos.y;
   }
+
   function endDraw(e) {
     if (!isDrawer) return;
     drawing = false;
@@ -440,47 +465,98 @@
     flushDraw();
   }
 
-  function remoteDraw(data) {
-    if (isDrawer || data.userId === USER_ID) return;
-    if (dom.canvas.width === 0) resizeCanvas();
-    ctx.strokeStyle = data.color;
-    ctx.lineWidth = data.size;
+  // اجرای رویداد نقاشی روی بوم محلی
+  function executeDrawEvent(data) {
     if (data.drawType === 'start') {
-      ctx.beginPath(); ctx.moveTo(data.x, data.y);
+      ctx.beginPath();
+      ctx.moveTo(data.x, data.y);
+      ctx.strokeStyle = data.color;
+      ctx.lineWidth = data.size;
     } else if (data.drawType === 'move') {
-      ctx.lineTo(data.x, data.y); ctx.stroke();
+      ctx.lineTo(data.x, data.y);
+      ctx.stroke();
     } else if (data.drawType === 'end') {
       ctx.closePath();
+    } else if (data.drawType === 'clear') {
+      ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
     }
+  }
+
+  // مدیریت رویدادهای دریافتی با شماره
+  function onDrawEvent(data) {
+    if (data.userId !== currentDrawer?.userId) return;
+    if (data.seq === expectedSeq) {
+      executeDrawEvent(data);
+      expectedSeq++;
+      lastReceivedSeq = data.seq;
+    } else if (data.seq > expectedSeq) {
+      requestEventSync(expectedSeq, data.seq-1);
+    }
+  }
+
+  function requestEventSync(fromSeq, toSeq) {
+    if (syncing) return;
+    syncing = true;
+    mqttClient.publish(`doodle/${roomId}/sync_request`, JSON.stringify({
+      requester: USER_ID,
+      fromSeq, toSeq,
+      drawerId: currentDrawer.userId
+    }));
+  }
+
+  function onSyncRequest(data) {
+    if (!isDrawer || currentDrawer?.userId !== data.drawerId) return;
+    const events = drawerEvents.filter(ev => ev.seq >= data.fromSeq && ev.seq <= data.toSeq);
+    if (events.length) {
+      mqttClient.publish(`doodle/${roomId}/sync_response`, JSON.stringify({
+        target: data.requester,
+        events
+      }));
+    }
+  }
+
+  function onSyncResponse(data) {
+    if (data.target !== USER_ID) return;
+    if (data.events && data.events.length) {
+      for (let ev of data.events) executeDrawEvent(ev);
+      expectedSeq = data.events[data.events.length-1].seq + 1;
+    }
+    syncing = false;
+  }
+
+  function sendFullSyncToUser(targetUserId) {
+    if (!isDrawer || !mqttClient) return;
+    if (drawerEvents.length === 0) return;
+    mqttClient.publish(`doodle/${roomId}/full_sync`, JSON.stringify({
+      target: targetUserId,
+      events: drawerEvents,
+      lastSeq: currentSeq
+    }));
+  }
+
+  function onFullSync(data) {
+    if (data.target !== USER_ID) return;
+    ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+    for (let ev of data.events) executeDrawEvent(ev);
+    expectedSeq = data.lastSeq + 1;
+    lastReceivedSeq = data.lastSeq;
   }
 
   function clearCanvas(send = true) {
     ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
     if (send && isDrawer && mqttClient) {
-      mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'clear', userId: USER_ID }));
+      currentSeq++;
+      const clearEvent = {
+        type: 'draw_event',
+        seq: currentSeq,
+        drawType: 'clear',
+        userId: USER_ID
+      };
+      drawerEvents.push(clearEvent);
+      mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(clearEvent));
     }
   }
   dom.clearBtn.onclick = () => clearCanvas();
-
-  function sendCanvasSync() {
-    if (!isDrawer || !mqttClient) return;
-    try {
-      const dataUrl = dom.canvas.toDataURL('image/png');
-      mqttClient.publish(`doodle/${roomId}/draw`, JSON.stringify({ type: 'canvas_sync', image: dataUrl, userId: USER_ID }));
-    } catch(e) {}
-  }
-
-  function startCanvasSyncInterval() {
-    if (canvasSyncInterval) clearInterval(canvasSyncInterval);
-    canvasSyncInterval = setInterval(() => {
-      if (isDrawer && mqttClient?.connected) sendCanvasSync();
-    }, CANVAS_SYNC_INTERVAL);
-  }
-
-  function stopCanvasSyncInterval() {
-    if (canvasSyncInterval) clearInterval(canvasSyncInterval);
-    canvasSyncInterval = null;
-  }
 
   // ========== مدیریت نقاش و تایمر ==========
   function pickNewWord() {
@@ -536,6 +612,9 @@
     const now = Date.now();
     const word = pickNewWord();
     currentDrawer = { userId: USER_ID, name: myName, startTime: now, word: word };
+    drawerEvents = [];
+    currentSeq = 0;
+    expectedSeq = 1;
     clearCanvas(true);
     setDrawToolsEnabled(true);
     dom.roleDisplay.textContent = '🖌️ تو نقاشی';
@@ -543,8 +622,6 @@
     dom.requestDrawBtn.textContent = '🎨 در حال نقاشی...';
     startDrawerTimer(now);
     mqttClient.publish(`doodle/${roomId}/drawer`, JSON.stringify(currentDrawer), { retain: true });
-    setTimeout(() => sendCanvasSync(), 100);
-    startCanvasSyncInterval();
   }
 
   function resignDrawer() {
@@ -558,7 +635,6 @@
     stopDrawerTimer();
     dom.requestDrawBtn.disabled = false;
     dom.requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
-    stopCanvasSyncInterval();
     mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
     mqttClient.publish(`doodle/${roomId}/drawer_finished`, JSON.stringify({ userId: USER_ID, reason: 'resign' }));
   }
@@ -574,7 +650,15 @@
     if (drawQueue.includes(USER_ID)) dom.requestDrawBtn.textContent = '⏳ در صف نقاشی';
     else dom.requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
     startDrawerTimer(drawer.startTime);
+    expectedSeq = 1;
+    lastReceivedSeq = 0;
+    ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
     updateUsersUI();
+    setTimeout(() => {
+      if (mqttClient?.connected && currentDrawer && currentDrawer.userId === drawer.userId) {
+        mqttClient.publish(`doodle/${roomId}/full_sync_request`, JSON.stringify({ target: USER_ID, drawerId: drawer.userId }));
+      }
+    }, 500);
   }
 
   function finishDrawingAndNext() {
@@ -697,19 +781,26 @@
         }
       } catch(e) {}
     }
-    else if (topic === `doodle/${roomId}/draw`) {
+    else if (topic === `doodle/${roomId}/draw_event`) {
       try {
         const data = JSON.parse(payload);
-        if (data.type === 'draw') remoteDraw(data);
-        else if (data.type === 'clear' && data.userId !== USER_ID) clearCanvas(false);
-        else if (data.type === 'canvas_sync' && !isDrawer && data.image) {
-          // *** رفع مشکل دوتا نقاشی: ابتدا بوم را پاک کن سپس تصویر جدید را رسم کن ***
-          ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
-          const img = new Image();
-          img.onload = () => { if (dom.canvas.width) ctx.drawImage(img, 0, 0, dom.canvas.width, dom.canvas.height); };
-          img.src = data.image;
-        }
+        if (data.userId === currentDrawer?.userId) onDrawEvent(data);
       } catch(e) {}
+    }
+    else if (topic === `doodle/${roomId}/sync_request`) {
+      try { onSyncRequest(JSON.parse(payload)); } catch(e) {}
+    }
+    else if (topic === `doodle/${roomId}/sync_response`) {
+      try { onSyncResponse(JSON.parse(payload)); } catch(e) {}
+    }
+    else if (topic === `doodle/${roomId}/full_sync_request`) {
+      try {
+        const data = JSON.parse(payload);
+        if (isDrawer && data.drawerId === USER_ID && data.target !== USER_ID) sendFullSyncToUser(data.target);
+      } catch(e) {}
+    }
+    else if (topic === `doodle/${roomId}/full_sync`) {
+      try { onFullSync(JSON.parse(payload)); } catch(e) {}
     }
     else if (topic === `doodle/${roomId}/drawer`) {
       if (payload) {
@@ -844,7 +935,7 @@
     mqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
     mqttClient.on('connect', () => {
       dom.statusLabel.innerText = '✅ متصل';
-      const topics = ['chat', 'draw', 'drawer', 'draw_request', 'drawer_finished', 'assign_drawer', 'queue', 'host', 'info', 'ping/+', 'history_update', 'request_history', 'user_list', 'user_list_request'];
+      const topics = ['chat', 'draw_event', 'sync_request', 'sync_response', 'full_sync_request', 'full_sync', 'drawer', 'draw_request', 'drawer_finished', 'assign_drawer', 'queue', 'host', 'info', 'ping/+', 'history_update', 'request_history', 'user_list', 'user_list_request'];
       topics.forEach(t => mqttClient.subscribe(`doodle/${roomId}/${t}`));
       mqttClient.on('message', onMqttMessage);
       publishMyInfo();
@@ -859,7 +950,6 @@
     window.addEventListener('beforeunload', () => {
       if (heartbeatInterval) clearInterval(heartbeatInterval);
       if (userListBroadcastInterval) clearInterval(userListBroadcastInterval);
-      if (canvasSyncInterval) clearInterval(canvasSyncInterval);
       if (mqttClient?.connected) mqttClient.end();
     });
   }
