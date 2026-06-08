@@ -158,8 +158,8 @@
   ];
 
   const DRAW_TIME = 120;
-  const HEARTBEAT_INTERVAL = 3000;
-  const HEARTBEAT_TIMEOUT = 12000;
+  const HEARTBEAT_INTERVAL = 5000;      // 5 ثانیه پینگ
+  const HEARTBEAT_TIMEOUT = 15000;      // 15 ثانیه بدون پینگ => قطع
   const THROTTLE_MS = 20;
   const MAX_HISTORY = 20;
 
@@ -210,7 +210,7 @@
   let drawerTimerInterval = null;
   let canvasWidth = 0, canvasHeight = 0;
 
-  // برای همگام‌سازی نقاشی (seq)
+  // همگام‌سازی با مختصات نرمال
   let drawerEvents = [];
   let currentSeq = 0;
   let expectedSeq = 1;
@@ -357,7 +357,7 @@
     updateHostRole();
   }
 
-  // ========== Heartbeat ==========
+  // ========== Heartbeat و مدیریت حضور ==========
   function startHeartbeat() {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = setInterval(() => {
@@ -411,7 +411,7 @@
     setTimeout(() => publishMyInfo(), 500);
   }
 
-  // ========== بوم و نقاشی ==========
+  // ========== بوم و نقاشی با مختصات نرمال ==========
   function resizeCanvas() {
     const rect = dom.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
@@ -436,6 +436,7 @@
     dom.toolbar.style.display = enabled ? 'flex' : 'none';
   }
 
+  // دریافت مختصات موس به صورت مطلق (برای نقاشی محلی)
   function getCanvasCoords(e) {
     const rect = dom.canvas.getBoundingClientRect();
     let clientX, clientY;
@@ -453,15 +454,27 @@
     return { x: xCSS * scaleX, y: yCSS * scaleY };
   }
 
-  // ارسال رویداد نقاشی با شماره ترتیبی
+  // تبدیل مختصات مطلق به نرمال (0..1)
+  function normalize(x, y) {
+    if (canvasWidth === 0 || canvasHeight === 0) return { xn: 0, yn: 0 };
+    return { xn: x / canvasWidth, yn: y / canvasHeight };
+  }
+
+  // تبدیل مختصات نرمال به مطلق
+  function denormalize(xn, yn) {
+    return { x: xn * canvasWidth, y: yn * canvasHeight };
+  }
+
+  // ارسال رویداد نقاشی (مختصات نرمال)
   function sendDraw(type, x, y) {
     if (!mqttClient?.connected || !isDrawer) return;
+    const { xn, yn } = normalize(x, y);
     currentSeq++;
     const ev = {
       type: 'draw_event',
       seq: currentSeq,
       drawType: type,
-      x, y,
+      xn, yn,
       color: dom.colorPicker.value,
       size: dom.brushSize.value,
       userId: USER_ID
@@ -520,14 +533,16 @@
     flushDraw();
   }
 
+  // اجرای رویداد نقاشی دریافتی (با دی‌نرمال کردن)
   function executeDrawEvent(data) {
+    const { x, y } = denormalize(data.xn, data.yn);
     if (data.drawType === 'start') {
       ctx.beginPath();
-      ctx.moveTo(data.x, data.y);
+      ctx.moveTo(x, y);
       ctx.strokeStyle = data.color;
       ctx.lineWidth = data.size;
     } else if (data.drawType === 'move') {
-      ctx.lineTo(data.x, data.y);
+      ctx.lineTo(x, y);
       ctx.stroke();
     } else if (data.drawType === 'end') {
       ctx.closePath();
@@ -577,7 +592,6 @@
     syncing = false;
   }
 
-  // همگام‌سازی کامل برای کاربر جدید
   function sendFullSync(targetUserId) {
     if (!isDrawer || !mqttClient) return;
     if (drawerEvents.length === 0) return;
@@ -603,7 +617,7 @@
         type: 'draw_event',
         seq: currentSeq,
         drawType: 'clear',
-        x: 0, y: 0,
+        xn: 0, yn: 0,
         userId: USER_ID
       };
       drawerEvents.push(clearEv);
@@ -672,7 +686,6 @@
     if (isDrawer || currentDrawer) return;
     const now = Date.now();
     const word = generateNewWord();
-    // ابتدا currentDrawer را می‌سازیم
     currentDrawer = { userId: USER_ID, name: myName, startTime: now, word: word };
     isDrawer = true;
     drawerEvents = [];
@@ -717,7 +730,6 @@
     expectedSeq = 1;
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     updateUsersUI();
-    // درخواست همگام‌سازی کامل از نقاش
     setTimeout(() => {
       if (mqttClient?.connected && currentDrawer && currentDrawer.userId === drawer.userId) {
         mqttClient.publish(`doodle/${roomId}/full_sync_request`, JSON.stringify({ target: USER_ID, drawerId: drawer.userId }));
@@ -812,7 +824,45 @@
     }
   }
 
-  // ========== MQTT ==========
+  // ========== MQTT با تنظیمات پایدار ==========
+  function initMqtt() {
+    if (typeof window.mqtt === 'undefined') {
+      dom.statusLabel.innerText = '❌ کتابخانه MQTT بارگذاری نشد';
+      return;
+    }
+    const options = {
+      keepalive: 30,
+      reconnectPeriod: 2000,
+      connectTimeout: 30 * 1000,
+      will: {
+        topic: `doodle/${roomId}/ping/${USER_ID}`,
+        payload: '',
+        retain: false
+      }
+    };
+    mqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt', options);
+    mqttClient.on('connect', () => {
+      dom.statusLabel.innerText = '✅ متصل';
+      const topics = ['chat', 'draw_event', 'sync_request', 'sync_response', 'full_sync_request', 'full_sync', 'drawer', 'draw_request', 'drawer_finished', 'assign_drawer', 'queue', 'host', 'user_list', 'info', 'ping/+', 'history_update', 'request_history'];
+      topics.forEach(t => mqttClient.subscribe(`doodle/${roomId}/${t}`));
+      mqttClient.on('message', onMqttMessage);
+      publishMyInfo();
+      startInfoPublish();
+      startHeartbeat();
+      setTimeout(() => {
+        if (mqttClient?.connected) mqttClient.publish(`doodle/${roomId}/request_history`, JSON.stringify({ userId: USER_ID }));
+      }, 500);
+      setTimeout(() => updateHostRole(), 1000);
+    });
+    mqttClient.on('error', (err) => { console.error(err); dom.statusLabel.innerText = '❌ خطا'; });
+    mqttClient.on('close', () => { dom.statusLabel.innerText = '⚠️ قطع شده'; });
+    window.addEventListener('beforeunload', () => {
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      if (mqttClient?.connected) mqttClient.end();
+    });
+  }
+
+  // ========== پردازش پیام‌های MQTT ==========
   function onMqttMessage(topic, message) {
     const payload = message.toString();
     if (!payload) return;
@@ -975,34 +1025,7 @@
     }
   }
 
-  function initMqtt() {
-    if (typeof window.mqtt === 'undefined') {
-      dom.statusLabel.innerText = '❌ کتابخانه MQTT بارگذاری نشد';
-      return;
-    }
-    mqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
-    mqttClient.on('connect', () => {
-      dom.statusLabel.innerText = '✅ متصل';
-      const topics = ['chat', 'draw_event', 'sync_request', 'sync_response', 'full_sync_request', 'full_sync', 'drawer', 'draw_request', 'drawer_finished', 'assign_drawer', 'queue', 'host', 'user_list', 'info', 'ping/+', 'history_update', 'request_history'];
-      topics.forEach(t => mqttClient.subscribe(`doodle/${roomId}/${t}`));
-      mqttClient.on('message', onMqttMessage);
-      publishMyInfo();
-      startInfoPublish();
-      startHeartbeat();
-      setTimeout(() => {
-        if (mqttClient?.connected) mqttClient.publish(`doodle/${roomId}/request_history`, JSON.stringify({ userId: USER_ID }));
-      }, 500);
-      setTimeout(() => updateHostRole(), 1000);
-    });
-    mqttClient.on('error', (err) => { console.error(err); dom.statusLabel.innerText = '❌ خطا'; });
-    mqttClient.on('close', () => { dom.statusLabel.innerText = '⚠️ قطع شده'; });
-    window.addEventListener('beforeunload', () => {
-      if (heartbeatInterval) clearInterval(heartbeatInterval);
-      if (mqttClient?.connected) mqttClient.end();
-    });
-  }
-
-  // ========== راه‌اندازی ==========
+  // ========== راه‌اندازی اولیه ==========
   dom.startBtn.onclick = () => {
     const name = dom.nameInput.value.trim();
     if (!name) return alert('نام خود را وارد کنید');
