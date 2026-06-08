@@ -90,7 +90,6 @@
       margin-right: 4px;
     }
     .drawer-chip { background:#7c5cfc; }
-    .queue-info { font-size:11px; color:#aaa; margin-right:6px; }
 
     @media (max-width: 600px) {
       .top-bar { flex-direction: column; align-items: stretch; }
@@ -157,8 +156,8 @@
   ];
 
   const DRAW_TIME = 120;
-  const HEARTBEAT_INTERVAL = 3000;      // 3 ثانیه پینگ
-  const HEARTBEAT_TIMEOUT = 12000;      // 12 ثانیه بدون پینگ => قطع
+  const HEARTBEAT_INTERVAL = 3000;
+  const HEARTBEAT_TIMEOUT = 12000;
   const THROTTLE_MS = 20;
   const MAX_HISTORY = 20;
 
@@ -235,7 +234,7 @@
     else addMessageToUI(text, 'other', senderName);
     chatHistory.unshift({ text, senderName: (sender === 'self' ? myName : senderName), isSystem: (sender === 'system'), timestamp: Date.now() });
     if (chatHistory.length > MAX_HISTORY) chatHistory.pop();
-    // پخش تاریخچه توسط همه (اختیاری) - ساده نگه می‌داریم
+    // در صورت تمایل می‌توان تاریخچه را broadcast کرد، اما برای سادگی فعلاً نه
   }
 
   function loadHistoryToUI(history) {
@@ -306,7 +305,6 @@
           stopDrawerTimer();
           updateWordDisplay();
           updateUsersUI();
-          // پاک کردن retain نقاش
           mqttClient.publish(`doodle/${roomId}/drawer`, '', { retain: true });
         }
       }
@@ -589,7 +587,6 @@
   }
 
   function becomeDrawer() {
-    // اگر قبلاً نقاشی وجود دارد یا خودم نقاش هستم، نمی‌توانم
     if (isDrawer || currentDrawer) return;
     const now = Date.now();
     const word = generateNewWord();
@@ -626,7 +623,7 @@
   function setDrawerFromRemote(drawer) {
     if (!drawer) return;
     if (drawer.userId === USER_ID) return;
-    // اگر خودم نقاش هستم و نقاش دیگری اعلام شد، باید resign کنم
+    // اگر خودم نقاش هستم، کناره‌گیری می‌کنم (نقاش جدید آمده)
     if (isDrawer) {
       resignDrawer();
     }
@@ -656,6 +653,7 @@
     addMessage(text, 'self');
     if (!isDrawer && currentDrawer && currentDrawer.word && text.trim().toLowerCase() === currentDrawer.word.toLowerCase()) {
       const remaining = Math.max(0, DRAW_TIME - Math.floor((Date.now() - currentDrawer.startTime) / 1000));
+      // ارسال پیام حدس درست
       mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify({
         type: 'correct_guess',
         guesserId: USER_ID,
@@ -663,12 +661,11 @@
         drawerId: currentDrawer.userId,
         remainingSeconds: remaining
       }));
+      // امتیاز خودم
       addScore(USER_ID, remaining);
       addScore(currentDrawer.userId, remaining);
       addMessage(`🎉 شما کلمه را درست حدس زدید! +${remaining} امتیاز`, 'system');
-      // پایان نقاشی
-      resignDrawer(); // فقط خودم resign می‌کنم، اما نقاش دیگر ممکن است باشد
-      // اما اگر نقاش دیگری است، خودش باید resign کند (با دریافت correct_guess)
+      // پایان نقاشی (نقاش بعداً resign می‌کند با دریافت correct_guess)
     }
   }
 
@@ -683,10 +680,11 @@
         if (data.type === 'chat') {
           if (data.userId !== USER_ID) addMessage(data.text, 'other', data.name);
         } else if (data.type === 'correct_guess') {
+          // اعطای امتیاز به هر دو (اگر هنوز انجام نشده)
           if (data.guesserId !== USER_ID) addScore(data.guesserId, data.remainingSeconds);
           if (data.drawerId !== USER_ID) addScore(data.drawerId, data.remainingSeconds);
           addMessage(`🎉 ${data.guesserName} کلمه را درست حدس زد! +${data.remainingSeconds} امتیاز`, 'system');
-          // اگر نقاش فعلی همان drawer است، باید نقاشی پایان یابد
+          // پایان نقاشی
           if (currentDrawer && currentDrawer.userId === data.drawerId) {
             if (currentDrawer.userId === USER_ID && isDrawer) {
               resignDrawer();
@@ -730,7 +728,7 @@
           setDrawerFromRemote(drawer);
         } catch(e) {}
       } else {
-        // پیام پاک شدن نقاش
+        // نقاش پاک شده (resign)
         if (!isDrawer && currentDrawer) {
           currentDrawer = null;
           dom.roleDisplay.textContent = '🔍 حدس بزن';
@@ -742,7 +740,7 @@
       }
     }
     else if (topic === `doodle/${roomId}/drawer_finished`) {
-      // اگر نقاش دیگری تمام شده، فقط وضعیت محلی را پاک می‌کنیم
+      // نقاش تمام شده (اختیاری)
       if (!isDrawer && currentDrawer) {
         currentDrawer = null;
         dom.roleDisplay.textContent = '🔍 حدس بزن';
@@ -791,7 +789,6 @@
       try {
         const data = JSON.parse(payload);
         if (data.userId !== USER_ID) {
-          // هر کسی می‌تواند تاریخچه را بفرستد، برای سادگی، خودم پاسخ می‌دهم
           mqttClient.publish(`doodle/${roomId}/history_update`, JSON.stringify({ history: chatHistory.slice(0, MAX_HISTORY) }));
         }
       } catch(e) {}
@@ -851,7 +848,6 @@
 
   dom.requestDrawBtn.onclick = () => {
     if (isDrawer) return;
-    // اگر نقاشی فعال نیست، نقاش می‌شوم
     if (!currentDrawer) {
       becomeDrawer();
     } else {
