@@ -158,8 +158,8 @@
   ];
 
   const DRAW_TIME = 120;
-  const HEARTBEAT_INTERVAL = 2000;
-  const HEARTBEAT_TIMEOUT = 10000;
+  const HEARTBEAT_INTERVAL = 3000;    // 3 ثانیه پینگ
+  const HEARTBEAT_TIMEOUT = 15000;    // 15 ثانیه بدون پینگ => قطع
   const THROTTLE_MS = 20;
   const MAX_HISTORY = 20;
   const USER_LIST_BROADCAST_INTERVAL = 3000;
@@ -196,7 +196,7 @@
   let joinTime = Date.now();
 
   let users = new Map();        // userId -> { name, score, joinTime, lastHeartbeat, timer }
-  let currentDrawer = null;
+  let currentDrawer = null;    // { userId, name, startTime, word }
   let isDrawer = false;
   let currentWord = '';
   let drawQueue = [];
@@ -213,7 +213,7 @@
   let userListBroadcastInterval = null;
   let canvasWidth = 0, canvasHeight = 0;
 
-  // همگام‌سازی رویدادها
+  // همگام‌سازی رویدادهای نقاشی
   let drawerEvents = [];
   let currentSeq = 0;
   let expectedSeq = 1;
@@ -289,7 +289,7 @@
     if (isHost) broadcastUserList();
   }
 
-  // تعیین میزبان با کوچکترین USER_ID
+  // تعیین میزبان: کوچکترین USER_ID
   function determineHostId() {
     let allUserIds = [USER_ID];
     for (let uid of users.keys()) allUserIds.push(uid);
@@ -367,14 +367,13 @@
     updateHost();
   }
 
-  // ========== بوم و نقاشی با حفظ محتوا هنگام resize ==========
+  // ========== بوم و نقاشی با مختصات نسبی ==========
   function resizeCanvas() {
     const rect = dom.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
-    // ذخیره محتوای فعلی
-    let savedImage = null;
+    let saved = null;
     if (canvasWidth > 0 && canvasHeight > 0) {
-      savedImage = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+      saved = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
     }
     canvasWidth = rect.width;
     canvasHeight = rect.height;
@@ -382,8 +381,8 @@
     dom.canvas.height = canvasHeight;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    if (savedImage) {
-      ctx.putImageData(savedImage, 0, 0);
+    if (saved) {
+      ctx.putImageData(saved, 0, 0);
     }
   }
   resizeCanvas();
@@ -394,6 +393,7 @@
     dom.toolbar.style.display = enabled ? 'flex' : 'none';
   }
 
+  // تبدیل مختصات ماوس به مختصات بوم (مطلق)
   function getCanvasCoords(e) {
     const rect = dom.canvas.getBoundingClientRect();
     let clientX, clientY;
@@ -411,20 +411,23 @@
     return { x: xCSS * scaleX, y: yCSS * scaleY };
   }
 
+  // ارسال رویداد نقاشی با مختصات نسبی (0..1)
   function sendDraw(type, x, y) {
     if (!mqttClient?.connected || !isDrawer) return;
     currentSeq++;
-    const eventData = {
+    const xn = canvasWidth ? x / canvasWidth : 0;
+    const yn = canvasHeight ? y / canvasHeight : 0;
+    const ev = {
       type: 'draw_event',
       seq: currentSeq,
       drawType: type,
-      x, y,
+      xn, yn,
       color: dom.colorPicker.value,
       size: dom.brushSize.value,
       userId: USER_ID
     };
-    drawerEvents.push(eventData);
-    mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(eventData));
+    drawerEvents.push(ev);
+    mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(ev));
   }
 
   function flushDraw() {
@@ -436,8 +439,8 @@
     }
   }
 
-  function throttleDraw(drawType, x, y) {
-    pendingDraw = { drawType, x, y };
+  function throttleDraw(type, x, y) {
+    pendingDraw = { drawType: type, x, y };
     if (!throttleTimer) throttleTimer = setTimeout(flushDraw, THROTTLE_MS);
   }
 
@@ -472,14 +475,17 @@
     flushDraw();
   }
 
+  // اجرای رویداد نقاشی با تبدیل مختصات نسبی به مطلق
   function executeDrawEvent(data) {
+    const x = data.xn * canvasWidth;
+    const y = data.yn * canvasHeight;
     if (data.drawType === 'start') {
       ctx.beginPath();
-      ctx.moveTo(data.x, data.y);
+      ctx.moveTo(x, y);
       ctx.strokeStyle = data.color;
       ctx.lineWidth = data.size;
     } else if (data.drawType === 'move') {
-      ctx.lineTo(data.x, data.y);
+      ctx.lineTo(x, y);
       ctx.stroke();
     } else if (data.drawType === 'end') {
       ctx.closePath();
@@ -552,15 +558,15 @@
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     if (send && isDrawer && mqttClient) {
       currentSeq++;
-      const clearEvent = {
+      const clearEv = {
         type: 'draw_event',
         seq: currentSeq,
         drawType: 'clear',
-        x: 0, y: 0,
+        xn: 0, yn: 0,
         userId: USER_ID
       };
-      drawerEvents.push(clearEvent);
-      mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(clearEvent));
+      drawerEvents.push(clearEv);
+      mqttClient.publish(`doodle/${roomId}/draw_event`, JSON.stringify(clearEv));
     }
   }
   dom.clearBtn.onclick = () => clearCanvas();
@@ -694,7 +700,8 @@
     const msg = { type: 'chat', text, userId: USER_ID, name: myName, timestamp: Date.now() };
     mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify(msg));
     addMessage(text, 'self');
-    if (!isDrawer && currentDrawer && text.trim().toLowerCase() === currentDrawer.word?.toLowerCase()) {
+    // بررسی حدس درست
+    if (!isDrawer && currentDrawer && currentDrawer.word && text.trim().toLowerCase() === currentDrawer.word.toLowerCase()) {
       const remaining = Math.max(0, DRAW_TIME - Math.floor((Date.now() - currentDrawer.startTime) / 1000));
       mqttClient.publish(`doodle/${roomId}/chat`, JSON.stringify({
         type: 'correct_guess',
@@ -750,13 +757,13 @@
       dom.requestDrawBtn.disabled = (currentDrawer !== null);
       dom.requestDrawBtn.textContent = '🎨 من می‌خواهم نقاشی کنم';
     }
-    let queueInfo = document.querySelector('.queue-info');
-    if (!queueInfo) {
-      queueInfo = document.createElement('span');
-      queueInfo.className = 'queue-info';
-      dom.requestDrawBtn.parentNode.appendChild(queueInfo);
+    let qi = document.querySelector('.queue-info');
+    if (!qi) {
+      qi = document.createElement('span');
+      qi.className = 'queue-info';
+      dom.requestDrawBtn.parentNode.appendChild(qi);
     }
-    queueInfo.textContent = drawQueue.length ? `صف: ${drawQueue.length} نفر` : '';
+    qi.textContent = drawQueue.length ? `صف: ${drawQueue.length} نفر` : '';
   }
 
   // ========== Heartbeat ==========
