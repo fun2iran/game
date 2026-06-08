@@ -84,9 +84,11 @@
     }
     .user-chip .score {
       font-weight: bold;
-      background: #1e1e2f;
+      background: #ffb86c;
+      color: #1e1e2f;
       border-radius: 12px;
-      padding: 0 6px;
+      padding: 2px 8px;
+      font-size: 12px;
       margin-right: 4px;
     }
     .drawer-chip { background:#7c5cfc; }
@@ -98,6 +100,7 @@
       .tools { gap: 6px; }
       button { padding: 6px 12px; font-size: 12px; }
       .user-chip { font-size: 10px; padding: 3px 8px; }
+      .user-chip .score { font-size: 10px; padding: 1px 6px; }
       .game-info { font-size: 11px; }
       .message { font-size: 12px; padding: 4px 8px; }
     }
@@ -143,17 +146,18 @@
 
 <script>
 (function(){
+  // لیست ۱۰۰ کلمه ساده و کوتاه برای کشیدن آسان
   const WORDS = [
-    'سیب', 'موز', 'پرتقال', 'انگور', 'هندوانه', 'گلابی', 'هلو', 'گیلاس', 'توت فرنگی', 'آناناس',
-    'ماشین', 'اتوبوس', 'قطار', 'هواپیما', 'دوچرخه', 'موتورسیکلت', 'کشتی', 'بالگرد', 'تراکتور', 'آمبولانس',
+    'سیب', 'موز', 'انگور', 'گلابی', 'هلو', 'گیلاس', 'هندوانه', 'پرتقال', 'آناناس', 'لیمو',
     'گربه', 'سگ', 'گاو', 'اسب', 'خرگوش', 'موش', 'پرنده', 'ماهی', 'شیر', 'فیل',
-    'خانه', 'درخت', 'گل', 'کوه', 'رودخانه', 'دریاچه', 'ابر', 'باران', 'آفتاب', 'ستاره',
-    'قلب', 'مربع', 'دایره', 'مثلث', 'پروانه', 'مداد', 'کتاب', 'مدرسه', 'قلم', 'خط کش',
-    'پاک کن', 'کیف', 'صندلی', 'میز', 'تخته سیاه', 'پیتزا', 'برگر', 'بستنی', 'کیک', 'نان',
-    'پنیر', 'شیر', 'آب میوه', 'قهوه', 'چای', 'عینک', 'کلاه', 'کفش', 'تی شرت', 'شلوار',
-    'دامن', 'کاپشن', 'چتر', 'ساعت', 'زنگ', 'توپ', 'عروسک', 'ماشین اسباب بازی', 'قطار اسباب بازی', 'پازل',
-    'لگو', 'بادکنک', 'بازی ویدئویی', 'کتاب داستان', 'نقاشی', 'تلفن', 'کامپیوتر', 'تلویزیون', 'هدفون', 'دوربین',
-    'چراغ', 'باتری', 'صفحه کلید', 'موشواره', 'مانیتور', 'آب', 'آتش', 'باد', 'خاک', 'برف'
+    'خانه', 'درخت', 'گل', 'کوه', 'رود', 'دریا', 'ابر', 'باران', 'آفتاب', 'ستاره',
+    'ماه', 'خورشید', 'چشم', 'گوش', 'دست', 'پا', 'قلب', 'دایره', 'مربع', 'مثلث',
+    'مداد', 'کتاب', 'توپ', 'ماشین', 'هواپیما', 'دوچرخه', 'کشتی', 'قطار', 'اتوبوس', 'بالگرد',
+    'کفش', 'کلاه', 'تی‌شرت', 'شلوار', 'دامن', 'عینک', 'ساعت', 'تلفن', 'کلید', 'قفل',
+    'صندلی', 'میز', 'تخت', 'لیوان', 'قاشق', 'چنگال', 'بشقاب', 'کمد', 'پنکه', 'جارو',
+    'پیتزا', 'کیک', 'نان', 'شیر', 'چای', 'قهوه', 'آب', 'آتش', 'برف', 'باد',
+    'پروانه', 'مورچه', 'زنبور', 'مگس', 'پشه', 'جوجه', 'تخم‌مرغ', 'جوراب', 'کوله', 'کیف',
+    'شمع', 'بادکنک', 'عروسک', 'چتر', 'سطل', 'پارو', 'طناب', 'دیوار', 'پنجره', 'در'
   ];
 
   const DRAW_TIME = 120;
@@ -272,14 +276,14 @@
       if (currentDrawer && currentDrawer.userId === u.id) chip.classList.add('drawer-chip');
       if (hostId === u.id) chip.classList.add('host-chip');
 
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = u.name + (u.isSelf ? ' (من)' : '');
-      chip.appendChild(nameSpan);
-
       const scoreSpan = document.createElement('span');
       scoreSpan.className = 'score';
       scoreSpan.textContent = u.score;
       chip.appendChild(scoreSpan);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = u.name + (u.isSelf ? ' (من)' : '');
+      chip.appendChild(nameSpan);
 
       dom.usersContainer.appendChild(chip);
     }
@@ -302,9 +306,7 @@
     if (!users.has(userId)) {
       addMessage(`${name} وارد اتاق شد.`, 'system');
     }
-    // اگر کاربر خودمان نباشد، تایمر قطعی تنظیم کن
     if (userId !== USER_ID) {
-      // پاک کردن تایمر قبلی اگر وجود داشت
       if (users.has(userId)) {
         clearTimeout(users.get(userId).timer);
       }
@@ -332,10 +334,9 @@
           }
         }
       }, HEARTBEAT_TIMEOUT);
-      users.set(userId, { name, joinTime, score: score || 0, lastHeartbeat: Date.now(), timer });
+      users.set(userId, { name, joinTime, score, lastHeartbeat: Date.now(), timer });
     } else {
-      // خودمان
-      users.set(USER_ID, { name: myName, joinTime, score: score || 0, lastHeartbeat: Date.now() });
+      users.set(USER_ID, { name: myName, joinTime, score, lastHeartbeat: Date.now() });
     }
     updateUsersUI();
     if (isHost) {
@@ -391,17 +392,15 @@
 
   function receiveUserList(data) {
     if (!data.users) return;
-    // کاربران دریافتی از میزبان را بدون تایمر قطعی جداگانه اضافه می‌کنیم
     for (let u of data.users) {
       if (u.userId === USER_ID) {
         let me = users.get(USER_ID) || { name: myName, joinTime, score: 0 };
-        me.score = u.score; // به‌روزرسانی امتیاز از میزبان
+        me.score = u.score;
         users.set(USER_ID, me);
       } else {
         if (!users.has(u.userId)) {
           addMessage(`${u.name} وارد اتاق شد.`, 'system');
         }
-        // تایمر قبلی را پاک کن و جدید تنظیم کن
         if (users.has(u.userId)) clearTimeout(users.get(u.userId).timer);
         const timer = setTimeout(() => {
           if (users.has(u.userId)) {
